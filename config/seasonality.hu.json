@@ -1,0 +1,14 @@
+{
+  "januar": ["cékla", "káposzta", "burgonya", "sárgarépa"],
+  "februar": ["cékla", "káposzta", "burgonya", "sárgarépa"],
+  "marcius": ["spenót", "retek", "újhagyma", "zöldhagyma"],
+  "aprilis": ["spárga", "spenót", "retek", "saláta"],
+  "majus": ["spárga", "eper", "saláta", "borsó"],
+  "junius": ["cukkini", "uborka", "eper", "cseresznye"],
+  "julius": ["paradicsom", "paprika", "cukkini", "barack"],
+  "augusztus": ["paradicsom", "paprika", "padlizsán", "kukorica"],
+  "szeptember": ["szilva", "alma", "sütőtök", "gomba"],
+  "oktober": ["sütőtök", "alma", "cékla", "karfiol"],
+  "november": ["káposzta", "cékla", "burgonya", "karalábé"],
+  "december": ["káposzta", "cékla", "burgonya", "alma"]
+}

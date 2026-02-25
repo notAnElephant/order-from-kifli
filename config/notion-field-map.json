@@ -1,0 +1,12 @@
+{
+  "title": "Name",
+  "ingredients_text": "Ingredients",
+  "rating": "Rating",
+  "total_minutes": "Total Minutes",
+  "enabled": "Enabled",
+  "season_tags": "Season",
+  "category": "Category",
+  "servings": "Servings",
+  "instructions_url": "URL",
+  "last_cooked": "Last Cooked"
+}
