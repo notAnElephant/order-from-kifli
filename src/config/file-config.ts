@@ -5,7 +5,7 @@ import type { StaticConfig } from '../types.js';
 
 const NotionFieldMapSchema = z.object({
   title: z.string(),
-  ingredients_text: z.string(),
+  ingredients_text: z.string().optional(),
   rating: z.string(),
   total_minutes: z.string(),
   enabled: z.string().optional(),

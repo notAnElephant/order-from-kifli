@@ -1,7 +1,7 @@
 import { Client as NotionClient } from '@notionhq/client';
 import type { NotionFieldMap, Recipe, RecipeSource, StaticConfig } from '../types.js';
 import { parseIngredientText } from '../parsing/ingredient-parser.js';
-import { safeNumber } from '../utils/normalize.js';
+import { normalizeText, safeNumber } from '../utils/normalize.js';
 
 function propertyValueToText(prop: any): string {
   if (!prop) return '';
@@ -45,6 +45,29 @@ function propertyValueToBoolean(prop: any, defaultValue = true): boolean {
   return ['true', 'yes', '1', 'enabled', 'active'].includes(text);
 }
 
+function richTextToPlainText(items: any[] | undefined): string {
+  return (items ?? []).map((p: any) => p?.plain_text ?? '').join('');
+}
+
+function blockText(block: any): string {
+  if (!block || !block.type) return '';
+  const payload = block[block.type];
+  if (!payload) return '';
+  return richTextToPlainText(payload.rich_text).trim();
+}
+
+function isHeadingBlock(block: any): boolean {
+  return ['heading_1', 'heading_2', 'heading_3'].includes(block?.type);
+}
+
+function parseRatingValue(raw: string): number {
+  const trimmed = raw.trim();
+  if (!trimmed) return 0;
+  const stars = (trimmed.match(/★/g) ?? []).length;
+  if (stars > 0) return stars;
+  return safeNumber(trimmed, 0);
+}
+
 export class NotionRecipeSource implements RecipeSource {
   private notion: NotionClient;
   private databaseId: string;
@@ -56,6 +79,60 @@ export class NotionRecipeSource implements RecipeSource {
     this.databaseId = options.databaseId;
     this.fields = options.staticConfig.notionFieldMap;
     this.staticConfig = options.staticConfig;
+  }
+
+  private async listChildBlocks(blockId: string): Promise<any[]> {
+    const all: any[] = [];
+    let cursor: string | undefined;
+
+    do {
+      const response: any = await this.notion.blocks.children.list({
+        block_id: blockId,
+        start_cursor: cursor,
+        page_size: 100
+      });
+      all.push(...(response.results ?? []));
+      cursor = response.has_more ? response.next_cursor : undefined;
+    } while (cursor);
+
+    return all;
+  }
+
+  private async extractIngredientsFromPageBody(pageId: string): Promise<string> {
+    const topLevelBlocks = await this.listChildBlocks(pageId);
+    const lines: string[] = [];
+    let inIngredientsSection = false;
+
+    for (const block of topLevelBlocks) {
+      const text = blockText(block);
+      const normalized = normalizeText(text);
+
+      if (isHeadingBlock(block)) {
+        if (normalized === 'hozzavalok' || normalized === 'ingredients') {
+          inIngredientsSection = true;
+          continue;
+        }
+        if (inIngredientsSection) {
+          break;
+        }
+      }
+
+      if (!inIngredientsSection) continue;
+
+      if (['bulleted_list_item', 'numbered_list_item', 'paragraph', 'to_do'].includes(block.type) && text) {
+        lines.push(text);
+      }
+
+      if (block.has_children) {
+        const children = await this.listChildBlocks(block.id);
+        for (const child of children) {
+          const childText = blockText(child);
+          if (childText) lines.push(childText);
+        }
+      }
+    }
+
+    return lines.join('\n').trim();
   }
 
   async listRecipes(): Promise<Recipe[]> {
@@ -73,8 +150,15 @@ export class NotionRecipeSource implements RecipeSource {
         if (row.object !== 'page') continue;
         const props = row.properties ?? {};
         const name = propertyValueToText(props[this.fields.title]);
-        const ingredientsText = propertyValueToText(props[this.fields.ingredients_text]);
-        if (!name || !ingredientsText) continue;
+        if (!name) continue;
+
+        let ingredientsText = this.fields.ingredients_text
+          ? propertyValueToText(props[this.fields.ingredients_text])
+          : '';
+        if (!ingredientsText) {
+          ingredientsText = await this.extractIngredientsFromPageBody(row.id);
+        }
+        if (!ingredientsText) continue;
 
         const recipe: Recipe = {
           id: row.id,
@@ -83,7 +167,7 @@ export class NotionRecipeSource implements RecipeSource {
           ingredients: parseIngredientText(ingredientsText, {
             synonyms: this.staticConfig.ingredientSynonyms
           }),
-          rating: safeNumber(propertyValueToText(props[this.fields.rating]), 0),
+          rating: parseRatingValue(propertyValueToText(props[this.fields.rating])),
           totalMinutes: safeNumber(propertyValueToText(props[this.fields.total_minutes]), 0),
           enabled: propertyValueToBoolean(this.fields.enabled ? props[this.fields.enabled] : undefined, true),
           seasonTags: this.fields.season_tags ? propertyValueToStringArray(props[this.fields.season_tags]) : undefined,

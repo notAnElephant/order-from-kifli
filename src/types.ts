@@ -227,7 +227,7 @@ export interface HistoryStore {
 
 export interface NotionFieldMap {
   title: string;
-  ingredients_text: string;
+  ingredients_text?: string;
   rating: string;
   total_minutes: string;
   enabled?: string;

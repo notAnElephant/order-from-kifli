@@ -81,7 +81,9 @@ export class KifliMcpClient implements GrocerClient {
       command: 'npx',
       args: [
         'mcp-remote',
-        'https://mcp.kifli.hu/mcp/',
+        'https://mcp.kifli.hu/mcp',
+        '--transport',
+        'sse-only',
         '--header',
         `rhl-email: ${this.email}`,
         '--header',
