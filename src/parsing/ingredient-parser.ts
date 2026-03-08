@@ -44,12 +44,14 @@ function parseQuantity(raw: string): number | null {
 
 function splitLine(line: string): { quantity: number | null; unit: string | null; name: string; warnings: string[] } {
   const warnings: string[] = [];
+  const original = line.trim().replace(/\s+/g, ' ');
   const normalized = normalizeText(line);
   if (!normalized) {
     return { quantity: null, unit: null, name: '', warnings: ['empty-line'] };
   }
 
   const parts = normalized.split(' ');
+  const originalParts = original.split(' ');
   let cursor = 0;
   let quantity: number | null = null;
   let unit: string | null = null;
@@ -72,7 +74,7 @@ function splitLine(line: string): { quantity: number | null; unit: string | null
     }
   }
 
-  const name = parts.slice(cursor).join(' ').trim();
+  const name = originalParts.slice(cursor).join(' ').trim();
   if (!name) {
     warnings.push('missing-ingredient-name');
   }
