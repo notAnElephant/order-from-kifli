@@ -29,6 +29,10 @@ export interface WeeklyRunDependencies {
 export class WeeklyRunOrchestrator {
   constructor(private deps: WeeklyRunDependencies) {}
 
+  private pushGrocerNote(notes: string[], message: string) {
+    if (!notes.includes(message)) notes.push(message);
+  }
+
   private async evaluateCandidateCart(candidate: MealCombinationCandidate): Promise<MealCombinationCandidate> {
     const caps = await this.deps.grocerClient.getCapabilities();
     const discounts = caps.discounts ? await this.deps.grocerClient.getDiscounts() : [];
@@ -40,10 +44,27 @@ export class WeeklyRunOrchestrator {
     for (const scored of candidate.recipes) {
       for (const ingredient of scored.recipe.ingredients) {
         const override = this.deps.staticConfig.productOverrides[ingredient.normalizedName];
-        const query = override?.preferredQuery ?? ingredient.normalizedName;
-        const search = await this.deps.grocerClient.searchProducts(query);
+        const query = override?.preferredQuery ?? ingredient.name;
+        let search;
+        try {
+          search = await this.deps.grocerClient.searchProducts(query);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error(`[grocer] product search failed for "${query}": ${message}`);
+          this.pushGrocerNote(grocerNotes, `Product search failed for ${ingredient.name}: ${message}`);
+          matchedLines.push({
+            ingredientName: ingredient.name,
+            normalizedIngredientName: ingredient.normalizedName,
+            requestedQuantity: ingredient.quantity,
+            requestedUnit: ingredient.unit,
+            matched: false,
+            notes: [message],
+            sourceRecipeIds: [scored.recipe.id]
+          });
+          continue;
+        }
         if (search.products.length === 0) {
-          grocerNotes.push(`No products for ${ingredient.name}`);
+          this.pushGrocerNote(grocerNotes, `No products for ${ingredient.name}`);
         }
         const products = search.products.map((p) => {
           const discount = discountIndex[p.id];
@@ -65,7 +86,16 @@ export class WeeklyRunOrchestrator {
       }
     }
 
-    const slots = caps.deliverySlots ? await this.deps.grocerClient.getDeliverySlots() : [];
+    let slots: import('../types.js').DeliverySlot[] = [];
+    if (caps.deliverySlots) {
+      try {
+        slots = await this.deps.grocerClient.getDeliverySlots();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[grocer] delivery slot lookup failed: ${message}`);
+        this.pushGrocerNote(grocerNotes, `Delivery slot lookup failed: ${message}`);
+      }
+    }
     candidate.cartProposal = buildCartProposal({ matchedLines, slots, notes: grocerNotes });
     return candidate;
   }
@@ -102,9 +132,18 @@ export class WeeklyRunOrchestrator {
     }
     candidates = rerankCandidatesWithCartSignals(candidates);
 
-    const selected = candidates[0]!;
+    let selected = candidates.find((candidate) => candidate.cartProposal) ?? candidates[0]!;
+    if (!selected.cartProposal) {
+      selected = await this.evaluateCandidateCart(selected);
+    }
     if (selected.cartProposal) {
-      await this.deps.grocerClient.setCart(selected.cartProposal.matchedLines);
+      try {
+        await this.deps.grocerClient.setCart(selected.cartProposal.matchedLines);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[grocer] cart update failed: ${message}`);
+        selected.cartProposal.grocerNotes.push(`Cart update failed: ${message}`);
+      }
     }
 
     const period = currentPeriod(this.deps.timezone);
