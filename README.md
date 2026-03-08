@@ -18,7 +18,7 @@ Local-first assistant that reads recipes from Notion, plans 2-3 weekly meals, bu
 
 ## Kifli MCP
 
-This project expects a remote MCP server accessible through `mcp-remote` and credentials provided by env vars (`KIFLI_EMAIL`, `KIFLI_PASSWORD`). Tool names are discovered dynamically and mapped to capabilities at runtime.
+This project launches `@tomaspavlin/rohlik-mcp` directly through `npx` and targets Kifli with `ROHLIK_BASE_URL=https://www.kifli.hu`. Credentials stay in `KIFLI_EMAIL` and `KIFLI_PASSWORD`; the app maps them to the server's `ROHLIK_USERNAME` and `ROHLIK_PASSWORD` env vars when starting the MCP process.
 
 ## Safety
 

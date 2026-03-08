@@ -25,7 +25,9 @@ export async function createApp() {
 
   const grocerClient = new KifliMcpClient({
     email: config.env.kifliEmail,
-    password: config.env.kifliPassword
+    password: config.env.kifliPassword,
+    baseUrl: config.env.rohlikBaseUrl,
+    debug: config.env.rohlikDebug
   });
 
   const notifier = new TelegramNotifier(config.env.telegramBotToken, config.env.telegramChatId);

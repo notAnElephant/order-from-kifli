@@ -60,13 +60,17 @@ function boolFromNameMatch(name: string, includesAny: string[]): boolean {
 export class KifliMcpClient implements GrocerClient {
   private email: string;
   private password: string;
+  private baseUrl: string;
+  private debug: boolean;
   private client: McpClientLike | null = null;
   private toolNames: string[] = [];
   private connected = false;
 
-  constructor(options: { email: string; password: string }) {
+  constructor(options: { email: string; password: string; baseUrl?: string; debug?: boolean }) {
     this.email = options.email;
     this.password = options.password;
+    this.baseUrl = options.baseUrl ?? process.env.ROHLIK_BASE_URL ?? 'https://www.kifli.hu';
+    this.debug = options.debug ?? ['1', 'true', 'yes'].includes((process.env.ROHLIK_DEBUG ?? 'false').toLowerCase());
   }
 
   private async ensureConnected() {
@@ -80,19 +84,15 @@ export class KifliMcpClient implements GrocerClient {
     const transport = new StdioClientTransport({
       command: 'npx',
       args: [
-        'mcp-remote',
-        'https://mcp.kifli.hu/mcp',
-        '--transport',
-        'sse-only',
-        '--header',
-        `rhl-email: ${this.email}`,
-        '--header',
-        `rhl-pass: ${this.password}`
+        '-y',
+        '@tomaspavlin/rohlik-mcp'
       ],
       env: {
         ...process.env,
-        RHL_EMAIL: this.email,
-        RHL_PASS: this.password
+        ROHLIK_USERNAME: this.email,
+        ROHLIK_PASSWORD: this.password,
+        ROHLIK_BASE_URL: this.baseUrl,
+        ROHLIK_DEBUG: this.debug ? 'true' : 'false'
       }
     });
 
@@ -120,13 +120,14 @@ export class KifliMcpClient implements GrocerClient {
 
     return {
       toolNames,
-      productSearch: has('search') || has('product', 'search') || has('termek', 'keres'),
-      discounts: has('discount') || has('akcio') || has('offer'),
-      cartRead: has('cart', 'get') || has('kosar') || has('cart'),
-      cartMutate: has('cart', 'add') || has('cart', 'update') || has('add', 'cart') || has('kosar', 'add'),
-      deliverySlots: has('delivery') || has('slot') || has('szallitas'),
-      placeOrder: has('checkout') || has('place', 'order') || has('order', 'create') || has('rendel'),
-      ordersHistory: has('order', 'history') || has('orders')
+      productSearch: has('search_products') || has('search', 'products'),
+      discounts: has('get_discounts') || has('discount') || has('offer'),
+      cartRead: has('get_cart_content') || has('cart', 'content') || has('cart'),
+      cartMutate:
+        has('add_to_cart') || has('remove_from_cart') || has('update_cart') || has('modify_cart') || has('cart'),
+      deliverySlots: has('get_delivery_slots') || has('delivery', 'slots') || has('slot'),
+      placeOrder: has('place_order') || has('checkout') || has('create_order'),
+      ordersHistory: has('get_order_history') || has('order', 'history') || has('orders')
     };
   }
 
@@ -161,7 +162,7 @@ export class KifliMcpClient implements GrocerClient {
   }
 
   async searchProducts(query: string): Promise<ProductSearchResult> {
-    const raw = await this.callTool(['product_search', 'search_products', 'termek keres', 'search'], { query });
+    const raw = await this.callTool(['search_products', 'product_search', 'search products'], { query });
     const products = asArray<any>(raw).map((p): GrocerProduct => ({
       id: String(p.id ?? p.productId ?? p.product_id ?? p.sku ?? p.code ?? p.name),
       name: String(p.name ?? p.productName ?? p.title ?? 'Unknown product'),
@@ -184,7 +185,7 @@ export class KifliMcpClient implements GrocerClient {
 
   async getDiscounts(): Promise<DiscountInfo[]> {
     try {
-      const raw = await this.callTool(['discounts', 'promotions', 'akcio'], {});
+      const raw = await this.callTool(['get_discounts', 'discounts', 'promotions'], {});
       return asArray<any>(raw).map((d) => ({
         productId: String(d.productId ?? d.product_id ?? d.id ?? d.sku),
         productName: String(d.productName ?? d.name ?? 'Unknown'),
@@ -204,19 +205,19 @@ export class KifliMcpClient implements GrocerClient {
   }
 
   async getCart(): Promise<unknown> {
-    return this.callTool(['cart_get', 'cart', 'kosar'], {});
+    return this.callTool(['get_cart_content', 'cart_get', 'cart'], {});
   }
 
   async setCart(lines: MatchedCartLine[]): Promise<unknown> {
     const matched = lines.filter((l) => l.matched && l.productId);
-    const payload = matched.map((l) => ({ productId: l.productId, quantity: l.quantityToAdd ?? 1 }));
+    const payload = matched.map((l) => ({ product_id: l.productId, quantity: l.quantityToAdd ?? 1 }));
 
     try {
-      return await this.callTool(['cart_set', 'set_cart'], { items: payload });
+      return await this.callTool(['set_cart', 'cart_set'], { items: payload });
     } catch {
       const added: unknown[] = [];
       for (const item of payload) {
-        added.push(await this.callTool(['cart_add', 'add_to_cart', 'kosar add'], item));
+        added.push(await this.callTool(['add_to_cart', 'cart_add'], item));
       }
       return { addedCount: added.length, results: added };
     }
@@ -224,7 +225,7 @@ export class KifliMcpClient implements GrocerClient {
 
   async getDeliverySlots(): Promise<DeliverySlot[]> {
     try {
-      const raw = await this.callTool(['delivery_slots', 'delivery', 'slots', 'szallitas'], {});
+      const raw = await this.callTool(['get_delivery_slots', 'delivery_slots', 'delivery slots'], {});
       return asArray<any>(raw).map((slot) => ({
         id: String(slot.id ?? slot.slotId ?? slot.slot_id ?? slot.label ?? Math.random()),
         label: String(slot.label ?? slot.name ?? slot.window ?? 'Delivery slot'),
@@ -240,7 +241,7 @@ export class KifliMcpClient implements GrocerClient {
   }
 
   async placeOrder(slotId: string, idempotencyKey: string): Promise<unknown> {
-    return this.callTool(['checkout', 'place_order', 'order_create', 'rendeles'], {
+    return this.callTool(['place_order', 'checkout', 'create_order'], {
       slotId,
       idempotencyKey
     });

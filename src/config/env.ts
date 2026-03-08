@@ -10,6 +10,8 @@ const EnvSchema = z.object({
   TELEGRAM_CHAT_ID: z.string().min(1),
   KIFLI_EMAIL: z.string().min(1),
   KIFLI_PASSWORD: z.string().min(1),
+  ROHLIK_BASE_URL: z.string().optional().default('https://www.kifli.hu'),
+  ROHLIK_DEBUG: z.string().optional().default('false'),
   TIMEZONE: z.string().default('Europe/Budapest'),
   ENABLE_ORDER_PLACEMENT: z.string().optional().default('false'),
   WEEKLY_RUN_CRON: z.string().default('0 10 * * 4'),
@@ -25,6 +27,8 @@ export type AppEnv = {
   telegramChatId: string;
   kifliEmail: string;
   kifliPassword: string;
+  rohlikBaseUrl: string;
+  rohlikDebug: boolean;
   timezone: string;
   enableOrderPlacement: boolean;
   weeklyRunCron: string;
@@ -42,6 +46,8 @@ export function loadEnv(): AppEnv {
     telegramChatId: parsed.TELEGRAM_CHAT_ID,
     kifliEmail: parsed.KIFLI_EMAIL,
     kifliPassword: parsed.KIFLI_PASSWORD,
+    rohlikBaseUrl: parsed.ROHLIK_BASE_URL,
+    rohlikDebug: ['1', 'true', 'yes'].includes(parsed.ROHLIK_DEBUG.toLowerCase()),
     timezone: parsed.TIMEZONE,
     enableOrderPlacement: ['1', 'true', 'yes'].includes(parsed.ENABLE_ORDER_PLACEMENT.toLowerCase()),
     weeklyRunCron: parsed.WEEKLY_RUN_CRON,
