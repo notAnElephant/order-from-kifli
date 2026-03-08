@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { ApprovalHandler } from '../src/orchestrator/approval-handler.js';
-import type { GrocerClient, HistoryStore, Notifier, ProposalRecord } from '../src/types.js';
+import type {
+  DeliverySlot,
+  DiscountInfo,
+  GrocerClient,
+  GrocerClientCapabilities,
+  HistoryStore,
+  Notifier,
+  ProductSearchResult,
+  ProposalRecord
+} from '../src/types.js';
 
 class MemoryStore implements HistoryStore {
   constructor(public proposal: ProposalRecord | null) {}
@@ -15,17 +24,10 @@ class MemoryStore implements HistoryStore {
   async markRejected(proposalId: string) {
     if (this.proposal && this.proposal.id === proposalId) this.proposal.status = 'rejected';
   }
-  async markOrdered(proposalId: string, orderResult: unknown) {
-    if (this.proposal && this.proposal.id === proposalId) {
-      this.proposal.status = 'ordered';
-      this.proposal.orderResult = orderResult;
-    }
-  }
 }
 
 class FakeGrocer implements GrocerClient {
-  placed = 0;
-  async getCapabilities() {
+  async getCapabilities(): Promise<GrocerClientCapabilities> {
     return {
       toolNames: [],
       productSearch: true,
@@ -33,16 +35,16 @@ class FakeGrocer implements GrocerClient {
       cartRead: true,
       cartMutate: true,
       deliverySlots: true,
-      placeOrder: true,
       ordersHistory: false
     };
   }
-  async searchProducts() { throw new Error('not used'); }
-  async getDiscounts() { return []; }
-  async getCart() { return {}; }
-  async setCart() { return {}; }
-  async getDeliverySlots() { return []; }
-  async placeOrder() { this.placed += 1; return { id: 'order_1' }; }
+  async searchProducts(): Promise<ProductSearchResult> {
+    throw new Error('not used');
+  }
+  async getDiscounts(): Promise<DiscountInfo[]> { return []; }
+  async getCart(): Promise<unknown> { return {}; }
+  async setCart(): Promise<unknown> { return {}; }
+  async getDeliverySlots(): Promise<DeliverySlot[]> { return []; }
 }
 
 class NullNotifier implements Notifier {
@@ -51,7 +53,7 @@ class NullNotifier implements Notifier {
 }
 
 describe('approval handler', () => {
-  it('prevents duplicate ordering', async () => {
+  it('prevents duplicate approval', async () => {
     const proposal: ProposalRecord = {
       id: 'proposal_1',
       createdAt: '2026-02-25T10:00:00Z',
@@ -89,14 +91,12 @@ describe('approval handler', () => {
     const handler = new ApprovalHandler({
       historyStore: store,
       grocerClient: grocer,
-      notifier: new NullNotifier(),
-      enableOrderPlacement: true
+      notifier: new NullNotifier()
     });
 
     await handler.approve('proposal_1');
     const second = await handler.approve('proposal_1');
 
-    expect(grocer.placed).toBe(1);
-    expect(second).toContain('already ordered');
+    expect(second).toContain('already approved');
   });
 });
