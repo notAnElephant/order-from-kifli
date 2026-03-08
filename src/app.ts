@@ -46,8 +46,7 @@ export async function createApp() {
   const approvalHandler = new ApprovalHandler({
     historyStore,
     grocerClient,
-    notifier,
-    enableOrderPlacement: config.env.enableOrderPlacement
+    notifier
   });
 
   async function startBot() {

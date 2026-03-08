@@ -33,16 +33,16 @@ export class SqliteHistoryStore implements HistoryStore {
     const cutoff = isoDaysAgo(days, this.timezone);
     const rows = this.db
       .prepare(
-        `SELECT p.id as proposal_id, p.created_at, p.status, r.recipe_id, r.recipe_name, r.dominant_ingredients_json
+         `SELECT p.id as proposal_id, p.created_at, p.status, r.recipe_id, r.recipe_name, r.dominant_ingredients_json
          FROM proposals p
          JOIN proposal_recipes r ON r.proposal_id = p.id
-         WHERE p.created_at >= ? AND p.status IN ('approved', 'ordered')
+         WHERE p.created_at >= ? AND p.status = 'approved'
          ORDER BY p.created_at DESC`
       )
       .all(cutoff) as Array<{
       proposal_id: string;
       created_at: string;
-      status: 'approved' | 'ordered';
+      status: 'approved';
       recipe_id: string;
       recipe_name: string;
       dominant_ingredients_json: string;
@@ -77,8 +77,8 @@ export class SqliteHistoryStore implements HistoryStore {
           record.telegramMessageId ?? null,
           record.approvedAt ?? null,
           record.rejectedAt ?? null,
-          record.orderedAt ?? null,
-          record.orderResult ? JSON.stringify(record.orderResult) : null
+          null,
+          null
         );
 
       this.db.prepare('DELETE FROM proposal_recipes WHERE proposal_id = ?').run(record.id);
@@ -147,13 +147,5 @@ export class SqliteHistoryStore implements HistoryStore {
 
   async markRejected(proposalId: string): Promise<void> {
     await this.patchProposal(proposalId, { status: 'rejected', rejectedAt: new Date().toISOString() });
-  }
-
-  async markOrdered(proposalId: string, orderResult: unknown): Promise<void> {
-    await this.patchProposal(proposalId, {
-      status: 'ordered',
-      orderedAt: new Date().toISOString(),
-      orderResult
-    });
   }
 }

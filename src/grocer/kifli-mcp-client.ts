@@ -215,7 +215,6 @@ export class KifliMcpClient implements GrocerClient {
       cartMutate:
         has('add_to_cart') || has('remove_from_cart') || has('update_cart') || has('modify_cart') || has('cart'),
       deliverySlots: has('get_delivery_slots') || has('delivery', 'slots') || has('slot'),
-      placeOrder: has('place_order') || has('checkout') || has('create_order'),
       ordersHistory: has('get_order_history') || has('order', 'history') || has('orders')
     };
   }

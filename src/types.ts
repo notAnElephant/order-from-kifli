@@ -31,7 +31,7 @@ export interface MealHistoryEntry {
   recipeId: string;
   recipeName: string;
   dominantIngredients: string[];
-  status: 'approved' | 'ordered';
+  status: 'approved';
 }
 
 export interface RecipeScoreBreakdown {
@@ -164,7 +164,7 @@ export interface CartProposal {
 export interface ProposalRecord {
   id: string;
   createdAt: string;
-  status: 'proposed' | 'approved' | 'rejected' | 'ordered' | 'failed';
+  status: 'proposed' | 'approved' | 'rejected' | 'failed';
   periodStart: string;
   periodEnd: string;
   candidate: MealCombinationCandidate;
@@ -172,15 +172,12 @@ export interface ProposalRecord {
   telegramMessageId?: number;
   approvedAt?: string;
   rejectedAt?: string;
-  orderedAt?: string;
-  orderResult?: unknown;
 }
 
 export interface ApprovalActionResult {
   proposalId: string;
   status: ProposalRecord['status'];
   message: string;
-  orderPlaced: boolean;
 }
 
 export interface RecipeSource {
@@ -194,7 +191,6 @@ export interface GrocerClientCapabilities {
   cartRead: boolean;
   cartMutate: boolean;
   deliverySlots: boolean;
-  placeOrder: boolean;
   ordersHistory: boolean;
 }
 
@@ -205,7 +201,6 @@ export interface GrocerClient {
   getCart(): Promise<unknown>;
   setCart(lines: MatchedCartLine[]): Promise<unknown>;
   getDeliverySlots(): Promise<DeliverySlot[]>;
-  placeOrder(slotId: string, idempotencyKey: string): Promise<unknown>;
 }
 
 export interface Notifier {
@@ -222,7 +217,6 @@ export interface HistoryStore {
   setProposalTelegramMessageId(proposalId: string, messageId: number): Promise<void>;
   markApproved(proposalId: string): Promise<void>;
   markRejected(proposalId: string): Promise<void>;
-  markOrdered(proposalId: string, orderResult: unknown): Promise<void>;
 }
 
 export interface NotionFieldMap {

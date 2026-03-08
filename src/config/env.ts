@@ -13,7 +13,6 @@ const EnvSchema = z.object({
   ROHLIK_BASE_URL: z.string().optional().default('https://www.kifli.hu'),
   ROHLIK_DEBUG: z.string().optional().default('false'),
   TIMEZONE: z.string().default('Europe/Budapest'),
-  ENABLE_ORDER_PLACEMENT: z.string().optional().default('false'),
   WEEKLY_RUN_CRON: z.string().default('0 10 * * 4'),
   WEEKLY_TARGET_TOTAL_MINUTES: z.coerce.number().default(180),
   DEFAULT_RECIPE_COUNT: z.coerce.number().default(3),
@@ -30,7 +29,6 @@ export type AppEnv = {
   rohlikBaseUrl: string;
   rohlikDebug: boolean;
   timezone: string;
-  enableOrderPlacement: boolean;
   weeklyRunCron: string;
   weeklyTargetTotalMinutes: number;
   defaultRecipeCount: number;
@@ -49,7 +47,6 @@ export function loadEnv(): AppEnv {
     rohlikBaseUrl: parsed.ROHLIK_BASE_URL,
     rohlikDebug: ['1', 'true', 'yes'].includes(parsed.ROHLIK_DEBUG.toLowerCase()),
     timezone: parsed.TIMEZONE,
-    enableOrderPlacement: ['1', 'true', 'yes'].includes(parsed.ENABLE_ORDER_PLACEMENT.toLowerCase()),
     weeklyRunCron: parsed.WEEKLY_RUN_CRON,
     weeklyTargetTotalMinutes: parsed.WEEKLY_TARGET_TOTAL_MINUTES,
     defaultRecipeCount: parsed.DEFAULT_RECIPE_COUNT,
