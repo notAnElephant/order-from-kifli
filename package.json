@@ -11,6 +11,7 @@
     "worker": "tsx src/cli/worker.ts",
     "plan-now": "tsx src/cli/plan-now.ts",
     "sync-kifli-capabilities": "tsx src/cli/sync-kifli-capabilities.ts",
+    "debug-product-search": "tsx src/cli/debug-product-search.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
