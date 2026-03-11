@@ -33,6 +33,16 @@ function asArray(value: unknown): unknown[] {
   return [];
 }
 
+function parseCartItemCountFromText(cart: string): number | null {
+  const match = cart.match(/total items:\s*(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+function normalizeCartPreviewLine(line: string): string {
+  // TODO: Remove this currency label workaround once the upstream rohlik-mcp cart summary reports kifli.hu totals in HUF.
+  return line.replace(/\bCZK\b/g, 'HUF');
+}
+
 function extractCartSummary(cart: unknown): { itemCount: number; preview: string[] } {
   const items = asArray(cart);
   if (items.length > 0) {
@@ -49,13 +59,17 @@ function extractCartSummary(cart: unknown): { itemCount: number; preview: string
   }
 
   if (typeof cart === 'string') {
+    const itemCountFromText = parseCartItemCountFromText(cart);
     const lines = cart
       .split('\n')
       .map((line) => line.trim())
-      .filter((line) => line.startsWith('• '));
+      .filter((line) => line.startsWith('• '))
+      .map((line) => line.replace(/^•\s*/, ''))
+      .map(normalizeCartPreviewLine);
+
     return {
-      itemCount: lines.length,
-      preview: lines.slice(0, 3).map((line) => line.replace(/^•\s*/, ''))
+      itemCount: itemCountFromText ?? lines.length,
+      preview: lines.slice(0, 3)
     };
   }
 
@@ -66,7 +80,7 @@ function formatCartGuardMessage(summary: { itemCount: number; preview: string[] 
   const previewLines = summary.preview.length ? ['', 'Current cart:', ...summary.preview.map((name) => `- ${name}`)] : [];
   return [
     `Your Kifli cart is not empty (${summary.itemCount} item${summary.itemCount === 1 ? '' : 's'}).`,
-    'Starting a new plan may overwrite what is already there.',
+    'You can replace it, append new items, or cancel.',
     'What should I do?',
     ...previewLines
   ].join('\n');
