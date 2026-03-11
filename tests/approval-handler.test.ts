@@ -8,6 +8,7 @@ class MemoryStore implements HistoryStore {
   async getRecentMeals() { return []; }
   async saveProposal(p: ProposalRecord) { this.proposal = p; }
   async getProposal() { return this.proposal; }
+  async getLatestProposal() { return this.proposal; }
   async setProposalTelegramMessageId() {}
   async markApproved(proposalId: string) {
     if (this.proposal && this.proposal.id === proposalId) this.proposal.status = 'approved';

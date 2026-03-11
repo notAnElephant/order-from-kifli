@@ -15,11 +15,9 @@ export function formatProposalMessage(proposal: ProposalRecord): string {
     )
     .join('\n');
 
-  const warnings = [
-    ...(cart?.unmatchedIngredients.length ? [`Unmatched: ${cart.unmatchedIngredients.join(', ')}`] : []),
-    ...(cart?.substitutions.length ? [`Substitutions: ${cart.substitutions.slice(0, 5).join('; ')}`] : []),
-    ...(cart?.grocerNotes ?? [])
-  ];
+  const unmatchedLines = cart?.unmatchedIngredients ?? [];
+  const substitutionLines = cart?.substitutions ?? [];
+  const warningLines = cart?.grocerNotes ?? [];
 
   return [
     `🛒 Weekly Kifli proposal (${proposal.periodStart} → ${proposal.periodEnd})`,
@@ -32,7 +30,9 @@ export function formatProposalMessage(proposal: ProposalRecord): string {
       : 'Cart: not built',
     `Checkout: ${checkoutUrl}`,
     '',
-    'Actions: Approve / Reject / Rebuild',
-    ...(warnings.length ? ['', 'Warnings:', ...warnings.map((w) => `- ${w}`)] : [])
+    'Actions: Approve / Reject / Rebuild / Swap recipe',
+    ...(unmatchedLines.length ? ['', '⚠️ Unmatched ingredients:', ...unmatchedLines.map((w) => `- ${w}`)] : []),
+    ...(warningLines.length ? ['', '⚠️ Matching notes:', ...warningLines.map((w) => `- ${w}`)] : []),
+    ...(substitutionLines.length ? ['', '🔁 Suggested substitutions:', ...substitutionLines.map((w) => `- ${w}`)] : [])
   ].join('\n');
 }

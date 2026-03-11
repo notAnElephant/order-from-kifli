@@ -130,6 +130,13 @@ export class SqliteHistoryStore implements HistoryStore {
     return row ? deserializeProposal(row.summary_json) : null;
   }
 
+  async getLatestProposal(): Promise<ProposalRecord | null> {
+    const row = this.db
+      .prepare('SELECT summary_json FROM proposals ORDER BY created_at DESC LIMIT 1')
+      .get() as { summary_json: string } | undefined;
+    return row ? deserializeProposal(row.summary_json) : null;
+  }
+
   private async patchProposal(proposalId: string, patch: Partial<ProposalRecord>): Promise<void> {
     const current = await this.getProposal(proposalId);
     if (!current) throw new Error(`Proposal not found: ${proposalId}`);

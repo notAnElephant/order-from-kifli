@@ -61,6 +61,37 @@ function diversityBonus(combo: ScoredRecipe[]): number {
   return 0.03;
 }
 
+export function buildMealCombinationCandidate(
+  combo: ScoredRecipe[],
+  options: Pick<CombinationSearchOptions, 'weeklyTargetTotalMinutes'>
+): MealCombinationCandidate {
+  const combinedMinutes = combo.reduce((sum, item) => sum + item.recipe.totalMinutes, 0);
+  const baseScore = combo.reduce((sum, item) => sum + item.breakdown.total, 0);
+  const overlapBonus = ingredientOverlapBonus(combo);
+  const diversity = diversityBonus(combo);
+  const minutesOver = Math.max(0, combinedMinutes - options.weeklyTargetTotalMinutes);
+  const costPenalty = (minutesOver / Math.max(options.weeklyTargetTotalMinutes, 1)) * 0.2;
+  const finalScore = baseScore + overlapBonus + diversity - costPenalty;
+
+  return {
+    recipeCount: combo.length,
+    recipes: combo,
+    recipeIds: combo.map((item) => item.recipe.id),
+    combinedMinutes,
+    baseScore,
+    overlapBonus,
+    diversityBonus: diversity,
+    costPenalty,
+    finalScore,
+    rationale: [
+      `base=${baseScore.toFixed(2)}`,
+      `overlap=${overlapBonus.toFixed(2)}`,
+      `diversity=${diversity.toFixed(2)}`,
+      `minutes=${combinedMinutes}`
+    ]
+  };
+}
+
 export function findMealCombinationCandidates(
   scoredRecipes: ScoredRecipe[],
   options: CombinationSearchOptions
@@ -70,33 +101,7 @@ export function findMealCombinationCandidates(
   const pool = scoredRecipes.slice(0, options.topNRecipesForCombos ?? 10);
   const combos = combinations(pool, Math.min(targetCount, pool.length));
 
-  const candidates = combos.map((combo) => {
-    const combinedMinutes = combo.reduce((sum, item) => sum + item.recipe.totalMinutes, 0);
-    const baseScore = combo.reduce((sum, item) => sum + item.breakdown.total, 0);
-    const overlapBonus = ingredientOverlapBonus(combo);
-    const diversity = diversityBonus(combo);
-    const minutesOver = Math.max(0, combinedMinutes - options.weeklyTargetTotalMinutes);
-    const costPenalty = minutesOver / Math.max(options.weeklyTargetTotalMinutes, 1) * 0.2;
-    const finalScore = baseScore + overlapBonus + diversity - costPenalty;
-
-    return {
-      recipeCount: combo.length,
-      recipes: combo,
-      recipeIds: combo.map((item) => item.recipe.id),
-      combinedMinutes,
-      baseScore,
-      overlapBonus,
-      diversityBonus: diversity,
-      costPenalty,
-      finalScore,
-      rationale: [
-        `base=${baseScore.toFixed(2)}`,
-        `overlap=${overlapBonus.toFixed(2)}`,
-        `diversity=${diversity.toFixed(2)}`,
-        `minutes=${combinedMinutes}`
-      ]
-    } satisfies MealCombinationCandidate;
-  });
+  const candidates = combos.map((combo) => buildMealCombinationCandidate(combo, options));
 
   return candidates
     .sort((a, b) => b.finalScore - a.finalScore)

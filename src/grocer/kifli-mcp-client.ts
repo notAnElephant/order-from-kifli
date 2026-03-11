@@ -490,4 +490,13 @@ export class KifliMcpClient implements GrocerClient {
       return this.callTool(['add_to_cart', 'cart_add'], { products: payload });
     }
   }
+
+  async appendToCart(lines: MatchedCartLine[]): Promise<unknown> {
+    const matched = lines.filter((l) => l.matched && l.productId);
+    const payload = matched
+      .map((l) => ({ product_id: Number(l.productId), quantity: l.quantityToAdd ?? 1 }))
+      .filter((item) => Number.isFinite(item.product_id));
+
+    return this.callTool(['add_to_cart', 'cart_add'], { products: payload });
+  }
 }

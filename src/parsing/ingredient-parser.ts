@@ -36,7 +36,7 @@ function parseQuantity(raw: string): number | null {
   if (/^\d+[.,]\d+$/.test(trimmed)) return Number(trimmed.replace(',', '.'));
   if (/^\d+\/\d+$/.test(trimmed)) {
     const [a, b] = trimmed.split('/').map(Number);
-    return b ? a / b : null;
+    return b ? (a ?? 1) / b : null;
   }
   if (/^\d+$/.test(trimmed)) return Number(trimmed);
   return null;

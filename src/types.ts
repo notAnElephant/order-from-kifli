@@ -82,6 +82,14 @@ export interface MealCombinationCandidate {
   cartProposal?: CartProposal;
 }
 
+export interface RecipeSwapOption {
+  index: number;
+  recipeId: string;
+  recipeName: string;
+  totalMinutes: number;
+  score: number;
+}
+
 export interface DiscountInfo {
   productId: string;
   productName: string;
@@ -163,8 +171,10 @@ export interface ProposalRecord {
   periodStart: string;
   periodEnd: string;
   candidate: MealCombinationCandidate;
+  availableRecipes?: ScoredRecipe[];
   messageText: string;
   telegramMessageId?: number;
+  telegramChatId?: string | number;
   approvedAt?: string;
   rejectedAt?: string;
 }
@@ -195,13 +205,14 @@ export interface GrocerClient {
   getPurchaseHistory(): Promise<Record<string, PurchaseHistorySignal>>;
   getCart(): Promise<unknown>;
   setCart(lines: MatchedCartLine[]): Promise<unknown>;
+  appendToCart(lines: MatchedCartLine[]): Promise<unknown>;
 }
 
 export interface Notifier {
   sendProposal(
     proposal: ProposalRecord,
     options?: { replaceMessageId?: number; chatId?: string | number }
-  ): Promise<{ messageId?: number }>;
+  ): Promise<{ messageId?: number; chatId?: string | number }>;
   sendStatus(message: string, options?: { chatId?: string | number }): Promise<void>;
   updateProposalMessage?(proposal: ProposalRecord): Promise<void>;
 }
@@ -211,6 +222,7 @@ export interface HistoryStore {
   getRecentMeals(days?: number): Promise<MealHistoryEntry[]>;
   saveProposal(proposal: ProposalRecord): Promise<void>;
   getProposal(proposalId: string): Promise<ProposalRecord | null>;
+  getLatestProposal(): Promise<ProposalRecord | null>;
   setProposalTelegramMessageId(proposalId: string, messageId: number): Promise<void>;
   markApproved(proposalId: string): Promise<void>;
   markRejected(proposalId: string): Promise<void>;

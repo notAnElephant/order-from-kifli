@@ -3,7 +3,11 @@ import { currentPeriod, nowIso } from '../utils/time.js';
 import { formatProposalMessage } from '../notify/formatters.js';
 import { buildCartProposal } from '../grocer/cart-builder.js';
 import { buildDiscountIndex, matchIngredientToProduct } from '../grocer/product-matcher.js';
-import { findMealCombinationCandidates, rerankCandidatesWithCartSignals } from '../planning/meal-combination-search.js';
+import {
+  buildMealCombinationCandidate,
+  findMealCombinationCandidates,
+  rerankCandidatesWithCartSignals
+} from '../planning/meal-combination-search.js';
 import { rankRecipes } from '../scoring/recipe-scorer.js';
 import { normalizeText } from '../utils/normalize.js';
 import type {
@@ -13,6 +17,7 @@ import type {
   Notifier,
   PurchaseHistorySignal,
   ProposalRecord,
+  RecipeSwapOption,
   RecipeSource,
   StaticConfig
 } from '../types.js';
@@ -109,11 +114,102 @@ export class WeeklyRunOrchestrator {
     return candidate;
   }
 
+  private async applyCartToCandidate(
+    candidate: MealCombinationCandidate,
+    cache: RunGrocerCache,
+    cartMode: 'replace' | 'append' = 'replace'
+  ): Promise<MealCombinationCandidate> {
+    const enriched = candidate.cartProposal ? candidate : await this.evaluateCandidateCart(candidate, cache);
+    if (enriched.cartProposal) {
+      try {
+        if (cartMode === 'append') {
+          await this.deps.grocerClient.appendToCart(enriched.cartProposal.matchedLines);
+        } else {
+          await this.deps.grocerClient.setCart(enriched.cartProposal.matchedLines);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[grocer] cart update failed: ${message}`);
+        enriched.cartProposal.grocerNotes.push(`Cart ${cartMode} failed: ${message}`);
+      }
+    }
+    return enriched;
+  }
+
+  getSwapOptions(proposal: ProposalRecord, slotIndex: number, offset = 0, limit = 3): {
+    currentRecipeName: string;
+    options: RecipeSwapOption[];
+    hasPrevPage: boolean;
+    hasNextPage: boolean;
+  } {
+    const current = proposal.candidate.recipes[slotIndex];
+    if (!current) throw new Error(`Recipe slot ${slotIndex + 1} not found.`);
+
+    const selectedIds = new Set(proposal.candidate.recipeIds.filter((_, index) => index !== slotIndex));
+    const options = (proposal.availableRecipes ?? [])
+      .filter((scored) => scored.recipe.id !== current.recipe.id)
+      .filter((scored) => !selectedIds.has(scored.recipe.id))
+      .map((scored, index) => ({
+        index,
+        recipeId: scored.recipe.id,
+        recipeName: scored.recipe.name,
+        totalMinutes: scored.recipe.totalMinutes,
+        score: scored.breakdown.total
+      }));
+
+    return {
+      currentRecipeName: current.recipe.name,
+      options: options.slice(offset, offset + limit),
+      hasPrevPage: offset > 0,
+      hasNextPage: offset + limit < options.length
+    };
+  }
+
+  async swapRecipe(
+    proposalId: string,
+    slotIndex: number,
+    replacementIndex: number,
+    reportProgress?: WeeklyRunProgressReporter,
+    cartMode: 'replace' | 'append' = 'replace'
+  ): Promise<ProposalRecord> {
+    const proposal = await this.deps.historyStore.getProposal(proposalId);
+    if (!proposal) throw new Error(`Proposal not found: ${proposalId}`);
+    if (proposal.status !== 'proposed') throw new Error('Only active proposed plans can be changed.');
+
+    const current = proposal.candidate.recipes[slotIndex];
+    if (!current) throw new Error(`Recipe slot ${slotIndex + 1} not found.`);
+
+    const selectedIds = new Set(proposal.candidate.recipeIds.filter((_, index) => index !== slotIndex));
+    const replacements = (proposal.availableRecipes ?? [])
+      .filter((scored) => scored.recipe.id !== current.recipe.id)
+      .filter((scored) => !selectedIds.has(scored.recipe.id));
+    const replacement = replacements[replacementIndex];
+    if (!replacement) throw new Error('Replacement recipe not found.');
+
+    await reportProgress?.(`Swapping ${current.recipe.name}...`);
+    const nextRecipes = [...proposal.candidate.recipes];
+    nextRecipes[slotIndex] = replacement;
+    const cache: RunGrocerCache = {
+      searchByQuery: new Map()
+    };
+    const nextCandidate = buildMealCombinationCandidate(nextRecipes, {
+      weeklyTargetTotalMinutes: this.deps.weeklyTargetTotalMinutes
+    });
+    await reportProgress?.('Matching replacement recipe on Kifli...');
+    proposal.candidate = await this.applyCartToCandidate(nextCandidate, cache, cartMode);
+    proposal.messageText = formatProposalMessage(proposal);
+    proposal.candidate.rationale.push(`swapped_slot=${slotIndex}`, `replacement=${replacement.recipe.name}`);
+    await this.deps.historyStore.saveProposal(proposal);
+    await this.deps.notifier.updateProposalMessage?.(proposal);
+    return proposal;
+  }
+
   async run(
     trigger: 'scheduled' | 'manual' = 'scheduled',
     reportProgress?: WeeklyRunProgressReporter,
     proposalMessageId?: number,
-    proposalChatId?: string | number
+    proposalChatId?: string | number,
+    cartMode: 'replace' | 'append' = 'replace'
   ): Promise<ProposalRecord> {
     await reportProgress?.('Reading recipes from Notion...');
     const recentMeals = await this.deps.historyStore.getRecentMeals(14);
@@ -156,16 +252,8 @@ export class WeeklyRunOrchestrator {
     if (!selected.cartProposal) {
       selected = await this.evaluateCandidateCart(selected, cache);
     }
-    if (selected.cartProposal) {
-      await reportProgress?.('Building cart on Kifli...');
-      try {
-        await this.deps.grocerClient.setCart(selected.cartProposal.matchedLines);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[grocer] cart update failed: ${message}`);
-        selected.cartProposal.grocerNotes.push(`Cart update failed: ${message}`);
-      }
-    }
+    await reportProgress?.('Building cart on Kifli...');
+    selected = await this.applyCartToCandidate(selected, cache, cartMode);
 
     const period = currentPeriod(this.deps.timezone);
     const proposal: ProposalRecord = {
@@ -175,6 +263,7 @@ export class WeeklyRunOrchestrator {
       periodStart: period.start,
       periodEnd: period.end,
       candidate: selected,
+      availableRecipes: scoredRecipes,
       messageText: ''
     };
 
@@ -200,7 +289,9 @@ export class WeeklyRunOrchestrator {
     });
     if (sendResult.messageId) {
       proposal.telegramMessageId = sendResult.messageId;
+      proposal.telegramChatId = sendResult.chatId;
       await this.deps.historyStore.setProposalTelegramMessageId(proposal.id, sendResult.messageId);
+      await this.deps.historyStore.saveProposal(proposal);
     }
 
     return proposal;
