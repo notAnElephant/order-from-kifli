@@ -57,6 +57,26 @@ After cart evaluation, candidates are reranked again using:
 - unmatched ingredient penalties
 - a small total-price penalty
 
+## Product Matching
+
+Ingredient-to-product matching is deterministic and implemented in [src/grocer/product-matcher.ts](/Users/oraisz/code/order-from-kifli/src/grocer/product-matcher.ts).
+
+Each candidate product gets its own score. The current model prefers:
+- strong text match between ingredient name and product name
+- token overlap when there is no exact phrase match
+- manual product overrides from `config/product-overrides.json`
+- previously purchased items from Kifli order history
+- package size close to the requested ingredient quantity/unit
+- discounted products as a small bonus
+
+In practice, the product score works like this:
+- exact or near-exact name match is the primary signal
+- previous purchases act as a preference among otherwise similar products
+- package-size fit and discounts help break ties
+- if two products still score similarly, the cheaper one wins
+
+This means items like `tej` should gradually converge toward products you already buy, while still rejecting clearly wrong matches.
+
 ## Checkout
 
 This app does not place orders. Approval in Telegram means the cart is prepared and a preferred delivery slot is suggested; final checkout is always manual in Kifli.

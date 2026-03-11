@@ -7,6 +7,7 @@ import type {
   GrocerClientCapabilities,
   HistoryStore,
   Notifier,
+  PurchaseHistorySignal,
   ProductSearchResult,
   ProposalRecord
 } from '../src/types.js';
@@ -42,6 +43,7 @@ class FakeGrocer implements GrocerClient {
     throw new Error('not used');
   }
   async getDiscounts(): Promise<DiscountInfo[]> { return []; }
+  async getPurchaseHistory(): Promise<Record<string, PurchaseHistorySignal>> { return {}; }
   async getCart(): Promise<unknown> { return {}; }
   async setCart(): Promise<unknown> { return {}; }
   async getDeliverySlots(): Promise<DeliverySlot[]> { return []; }

@@ -11,6 +11,7 @@ import type {
   HistoryStore,
   MealCombinationCandidate,
   Notifier,
+  PurchaseHistorySignal,
   ProposalRecord,
   RecipeSource,
   StaticConfig
@@ -43,6 +44,9 @@ export class WeeklyRunOrchestrator {
   private async evaluateCandidateCart(candidate: MealCombinationCandidate, cache: RunGrocerCache): Promise<MealCombinationCandidate> {
     const caps = await this.deps.grocerClient.getCapabilities();
     const discounts = caps.discounts ? await this.deps.grocerClient.getDiscounts() : [];
+    const purchaseHistory: Record<string, PurchaseHistorySignal> = caps.ordersHistory
+      ? await this.deps.grocerClient.getPurchaseHistory()
+      : {};
     const discountIndex = buildDiscountIndex(discounts);
 
     const matchedLines = [] as import('../types.js').MatchedCartLine[];
@@ -93,7 +97,8 @@ export class WeeklyRunOrchestrator {
         matchedLines.push(
           matchIngredientToProduct(ingredient, products, scored.recipe.id, {
             productOverrides: this.deps.staticConfig.productOverrides,
-            discountsByProductId: discountIndex
+            discountsByProductId: discountIndex,
+            purchaseHistoryByProductId: purchaseHistory
           })
         );
       }

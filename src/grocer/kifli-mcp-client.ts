@@ -5,6 +5,7 @@ import type {
   GrocerClientCapabilities,
   GrocerProduct,
   MatchedCartLine,
+  PurchaseHistorySignal,
   ProductSearchResult
 } from '../types.js';
 import { normalizeText } from '../utils/normalize.js';
@@ -118,6 +119,90 @@ function parseSearchProductsText(text: string): GrocerProduct[] {
       raw: { text: chunk }
     } satisfies GrocerProduct;
   });
+}
+
+function parseIsoLikeDate(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
+function mergePurchaseSignal(
+  store: Record<string, PurchaseHistorySignal>,
+  productId: string,
+  productName?: string,
+  purchasedAt?: string
+) {
+  const existing = store[productId];
+  if (!existing) {
+    store[productId] = {
+      productId,
+      productName,
+      purchaseCount: 1,
+      lastPurchasedAt: purchasedAt
+    };
+    return;
+  }
+
+  existing.purchaseCount += 1;
+  if (!existing.productName && productName) existing.productName = productName;
+  if (purchasedAt && (!existing.lastPurchasedAt || purchasedAt > existing.lastPurchasedAt)) {
+    existing.lastPurchasedAt = purchasedAt;
+  }
+}
+
+function parsePurchaseHistory(value: unknown): Record<string, PurchaseHistorySignal> {
+  const store: Record<string, PurchaseHistorySignal> = {};
+
+  const walk = (node: unknown, contextDate?: string) => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, contextDate);
+      return;
+    }
+    if (typeof node !== 'object') return;
+
+    const obj = node as Record<string, unknown>;
+    const nodeDate =
+      parseIsoLikeDate(obj.lastPurchasedAt) ??
+      parseIsoLikeDate(obj.purchasedAt) ??
+      parseIsoLikeDate(obj.deliveredAt) ??
+      parseIsoLikeDate(obj.orderDate) ??
+      parseIsoLikeDate(obj.createdAt) ??
+      contextDate;
+    const productId = obj.productId ?? obj.product_id ?? obj.id;
+    const productName = obj.productName ?? obj.name ?? obj.title;
+
+    if ((typeof productId === 'string' || typeof productId === 'number') && typeof productName === 'string') {
+      mergePurchaseSignal(store, String(productId), productName, nodeDate);
+    }
+
+    for (const value of Object.values(obj)) {
+      walk(value, nodeDate);
+    }
+  };
+
+  walk(value);
+  return store;
+}
+
+function parsePurchaseHistoryText(text: string): Record<string, PurchaseHistorySignal> {
+  const store: Record<string, PurchaseHistorySignal> = {};
+  const chunks = text
+    .split(/\n\s*\n/)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.includes('ID:'));
+
+  for (const chunk of chunks) {
+    const lines = chunk.split('\n').map((line) => line.trim());
+    const header = lines.find((line) => line.startsWith('• '))?.replace(/^•\s*/, '');
+    const id = lines.find((line) => line.startsWith('ID:'))?.replace(/^ID:\s*/, '').trim();
+    if (id) mergePurchaseSignal(store, id, header);
+  }
+
+  return store;
 }
 
 function parseDeliverySlotsText(text: string): DeliverySlot[] {
@@ -493,6 +578,18 @@ export class KifliMcpClient implements GrocerClient {
       }));
     } catch {
       return [];
+    }
+  }
+
+  async getPurchaseHistory(): Promise<Record<string, PurchaseHistorySignal>> {
+    try {
+      const raw = await this.callTool(['get_order_history', 'order_history', 'orders history'], {});
+      const structured = parsePurchaseHistory(raw);
+      if (Object.keys(structured).length > 0) return structured;
+      if (typeof raw === 'string') return parsePurchaseHistoryText(raw);
+      return {};
+    } catch {
+      return {};
     }
   }
 

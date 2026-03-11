@@ -91,6 +91,13 @@ export interface DiscountInfo {
   validUntil?: string;
 }
 
+export interface PurchaseHistorySignal {
+  productId: string;
+  productName?: string;
+  purchaseCount: number;
+  lastPurchasedAt?: string;
+}
+
 export interface GrocerProduct {
   id: string;
   name: string;
@@ -198,6 +205,7 @@ export interface GrocerClient {
   getCapabilities(): Promise<GrocerClientCapabilities>;
   searchProducts(query: string): Promise<ProductSearchResult>;
   getDiscounts(): Promise<DiscountInfo[]>;
+  getPurchaseHistory(): Promise<Record<string, PurchaseHistorySignal>>;
   getCart(): Promise<unknown>;
   setCart(lines: MatchedCartLine[]): Promise<unknown>;
   getDeliverySlots(): Promise<DeliverySlot[]>;
