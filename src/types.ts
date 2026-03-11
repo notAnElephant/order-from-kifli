@@ -145,16 +145,6 @@ export interface CartLine {
   notes?: string[];
 }
 
-export interface DeliverySlot {
-  id: string;
-  label: string;
-  startsAt?: string;
-  endsAt?: string;
-  fee?: number;
-  available: boolean;
-  raw?: unknown;
-}
-
 export interface CartProposal {
   cartLines: CartLine[];
   matchedLines: MatchedCartLine[];
@@ -163,8 +153,6 @@ export interface CartProposal {
   estimatedSavings: number;
   unmatchedIngredients: string[];
   substitutions: string[];
-  selectedSlot?: DeliverySlot;
-  alternativeSlots?: DeliverySlot[];
   grocerNotes: string[];
 }
 
@@ -197,7 +185,6 @@ export interface GrocerClientCapabilities {
   discounts: boolean;
   cartRead: boolean;
   cartMutate: boolean;
-  deliverySlots: boolean;
   ordersHistory: boolean;
 }
 
@@ -208,7 +195,6 @@ export interface GrocerClient {
   getPurchaseHistory(): Promise<Record<string, PurchaseHistorySignal>>;
   getCart(): Promise<unknown>;
   setCart(lines: MatchedCartLine[]): Promise<unknown>;
-  getDeliverySlots(): Promise<DeliverySlot[]>;
 }
 
 export interface Notifier {

@@ -1,16 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApprovalHandler } from '../src/orchestrator/approval-handler.js';
-import type {
-  DeliverySlot,
-  DiscountInfo,
-  GrocerClient,
-  GrocerClientCapabilities,
-  HistoryStore,
-  Notifier,
-  PurchaseHistorySignal,
-  ProductSearchResult,
-  ProposalRecord
-} from '../src/types.js';
+import type { HistoryStore, ProposalRecord } from '../src/types.js';
 
 class MemoryStore implements HistoryStore {
   constructor(public proposal: ProposalRecord | null) {}
@@ -25,33 +15,6 @@ class MemoryStore implements HistoryStore {
   async markRejected(proposalId: string) {
     if (this.proposal && this.proposal.id === proposalId) this.proposal.status = 'rejected';
   }
-}
-
-class FakeGrocer implements GrocerClient {
-  async getCapabilities(): Promise<GrocerClientCapabilities> {
-    return {
-      toolNames: [],
-      productSearch: true,
-      discounts: true,
-      cartRead: true,
-      cartMutate: true,
-      deliverySlots: true,
-      ordersHistory: false
-    };
-  }
-  async searchProducts(): Promise<ProductSearchResult> {
-    throw new Error('not used');
-  }
-  async getDiscounts(): Promise<DiscountInfo[]> { return []; }
-  async getPurchaseHistory(): Promise<Record<string, PurchaseHistorySignal>> { return {}; }
-  async getCart(): Promise<unknown> { return {}; }
-  async setCart(): Promise<unknown> { return {}; }
-  async getDeliverySlots(): Promise<DeliverySlot[]> { return []; }
-}
-
-class NullNotifier implements Notifier {
-  async sendProposal() { return {}; }
-  async sendStatus() {}
 }
 
 describe('approval handler', () => {
@@ -82,18 +45,14 @@ describe('approval handler', () => {
           estimatedSavings: 100,
           unmatchedIngredients: [],
           substitutions: [],
-          grocerNotes: [],
-          selectedSlot: { id: 'slot_1', label: 'Tomorrow 10-12', available: true }
+          grocerNotes: []
         }
       }
     };
 
     const store = new MemoryStore(proposal);
-    const grocer = new FakeGrocer();
     const handler = new ApprovalHandler({
-      historyStore: store,
-      grocerClient: grocer,
-      notifier: new NullNotifier()
+      historyStore: store
     });
 
     await handler.approve('proposal_1');

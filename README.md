@@ -79,4 +79,4 @@ This means items like `tej` should gradually converge toward products you alread
 
 ## Checkout
 
-This app does not place orders. Approval in Telegram means the cart is prepared and a preferred delivery slot is suggested; final checkout is always manual in Kifli.
+This app does not place orders or select delivery slots. Approval in Telegram means the cart is prepared; final checkout is always manual in Kifli at `https://www.kifli.hu/rendeles/kosaram-tartalma`.
