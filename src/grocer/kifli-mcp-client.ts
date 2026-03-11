@@ -22,6 +22,14 @@ type StdioTransportCtor = new (args: {
   env?: Record<string, string>;
 }) => unknown;
 
+type RequestStats = {
+  totalCalls: number;
+  failedCalls: number;
+  rateLimitErrors: number;
+  toolCalls: Record<string, number>;
+  searchQueries: Record<string, number>;
+};
+
 function flattenContent(result: any): unknown {
   if (!result) return null;
   if (result.structuredContent) return result.structuredContent;
@@ -143,17 +151,26 @@ export class KifliMcpClient implements GrocerClient {
   private password: string;
   private baseUrl: string;
   private debug: boolean;
+  private trace: boolean;
   private command: string;
   private commandArgs: string[];
   private client: McpClientLike | null = null;
   private toolNames: string[] = [];
   private connected = false;
+  private requestStats: RequestStats = {
+    totalCalls: 0,
+    failedCalls: 0,
+    rateLimitErrors: 0,
+    toolCalls: {},
+    searchQueries: {}
+  };
 
   constructor(options: {
     email: string;
     password: string;
     baseUrl?: string;
     debug?: boolean;
+    trace?: boolean;
     command?: string;
     commandArgs?: string[];
   }) {
@@ -161,6 +178,7 @@ export class KifliMcpClient implements GrocerClient {
     this.password = options.password;
     this.baseUrl = options.baseUrl ?? process.env.ROHLIK_BASE_URL ?? 'https://www.kifli.hu';
     this.debug = options.debug ?? ['1', 'true', 'yes'].includes((process.env.ROHLIK_DEBUG ?? 'false').toLowerCase());
+    this.trace = options.trace ?? ['1', 'true', 'yes'].includes((process.env.ROHLIK_TRACE ?? 'false').toLowerCase());
     this.command = options.command ?? 'pnpm';
     this.commandArgs = options.commandArgs ?? ['exec', 'rohlik-mcp'];
   }
@@ -224,16 +242,44 @@ export class KifliMcpClient implements GrocerClient {
     return this.getCapabilitySnapshot();
   }
 
+  getRequestStats(): RequestStats {
+    return {
+      totalCalls: this.requestStats.totalCalls,
+      failedCalls: this.requestStats.failedCalls,
+      rateLimitErrors: this.requestStats.rateLimitErrors,
+      toolCalls: { ...this.requestStats.toolCalls },
+      searchQueries: { ...this.requestStats.searchQueries }
+    };
+  }
+
+  logRequestSummary(context = 'kifli-mcp') {
+    const topQueries = Object.entries(this.requestStats.searchQueries)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([query, count]) => `${query} (${count})`);
+    console.error(
+      `[${context}] request summary`,
+      JSON.stringify(
+        {
+          totalCalls: this.requestStats.totalCalls,
+          failedCalls: this.requestStats.failedCalls,
+          rateLimitErrors: this.requestStats.rateLimitErrors,
+          toolCalls: this.requestStats.toolCalls,
+          topQueries
+        },
+        null,
+        2
+      )
+    );
+  }
+
   async debugCallTool(candidates: string[], args: Record<string, unknown>): Promise<unknown> {
     await this.ensureConnected();
     const toolName = this.findToolName(candidates);
     if (!toolName) {
       throw new Error(`No MCP tool found for patterns: ${candidates.join(', ')}`);
     }
-    if (!this.client?.callTool) {
-      throw new Error('MCP client does not expose callTool');
-    }
-    return this.client.callTool({ name: toolName, arguments: args });
+    return this.invokeTool(toolName, args);
   }
 
   private findToolName(candidates: string[]): string | null {
@@ -254,21 +300,59 @@ export class KifliMcpClient implements GrocerClient {
     if (!toolName) {
       throw new Error(`No MCP tool found for patterns: ${candidates.join(', ')}`);
     }
+    return flattenContent(await this.invokeTool(toolName, args));
+  }
+
+  private async invokeTool(toolName: string, args: Record<string, unknown>): Promise<any> {
     if (!this.client?.callTool) {
       throw new Error('MCP client does not expose callTool');
     }
-    const result = await this.client.callTool({ name: toolName, arguments: args });
-    return flattenContent(result);
+    const startedAt = Date.now();
+    this.requestStats.totalCalls += 1;
+    this.requestStats.toolCalls[toolName] = (this.requestStats.toolCalls[toolName] ?? 0) + 1;
+    if (toolName === 'search_products' && typeof args.product_name === 'string') {
+      this.requestStats.searchQueries[args.product_name] = (this.requestStats.searchQueries[args.product_name] ?? 0) + 1;
+    }
+    if (this.trace) {
+      console.error(`[rohlik-trace] -> ${toolName}`, JSON.stringify(args));
+    }
+    try {
+      const result = await this.client.callTool({ name: toolName, arguments: args });
+      const toolError = extractToolError(result);
+      if (toolError) {
+        this.requestStats.failedCalls += 1;
+        if (/HTTP\s+429/i.test(toolError)) {
+          this.requestStats.rateLimitErrors += 1;
+        }
+      }
+      if (this.trace) {
+        console.error(
+          `[rohlik-trace] <- ${toolName} ${Date.now() - startedAt}ms`,
+          JSON.stringify({
+            isError: Boolean(result?.isError),
+            text: extractTextContent(result)
+          })
+        );
+      }
+      return result;
+    } catch (error) {
+      this.requestStats.failedCalls += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      if (/HTTP\s+429/i.test(message)) {
+        this.requestStats.rateLimitErrors += 1;
+      }
+      if (this.trace) {
+        console.error(`[rohlik-trace] !! ${toolName} ${Date.now() - startedAt}ms`, message);
+      }
+      throw error;
+    }
   }
 
   async searchProducts(query: string): Promise<ProductSearchResult> {
     await this.ensureConnected();
     const toolName = this.findToolName(['search_products', 'product_search', 'search products']);
     if (!toolName) throw new Error('No MCP search tool found');
-    const result = await this.client?.callTool?.({
-      name: toolName,
-      arguments: { product_name: query, limit: 10, favourite_only: false }
-    });
+    const result = await this.invokeTool(toolName, { product_name: query, limit: 10, favourite_only: false });
     const toolError = extractToolError(result);
     if (toolError) {
       throw new Error(`search_products failed for "${query}": ${toolError}`);

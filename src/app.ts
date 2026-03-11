@@ -27,7 +27,8 @@ export async function createApp() {
     email: config.env.kifliEmail,
     password: config.env.kifliPassword,
     baseUrl: config.env.rohlikBaseUrl,
-    debug: config.env.rohlikDebug
+    debug: config.env.rohlikDebug,
+    trace: config.env.rohlikTrace
   });
 
   const notifier = new TelegramNotifier(config.env.telegramBotToken, config.env.telegramChatId);
