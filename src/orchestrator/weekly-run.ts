@@ -5,6 +5,7 @@ import { buildCartProposal } from '../grocer/cart-builder.js';
 import { buildDiscountIndex, matchIngredientToProduct } from '../grocer/product-matcher.js';
 import { findMealCombinationCandidates, rerankCandidatesWithCartSignals } from '../planning/meal-combination-search.js';
 import { rankRecipes } from '../scoring/recipe-scorer.js';
+import { normalizeText } from '../utils/normalize.js';
 import type {
   GrocerClient,
   HistoryStore,
@@ -14,6 +15,7 @@ import type {
   RecipeSource,
   StaticConfig
 } from '../types.js';
+import { KifliMcpClient } from '../grocer/kifli-mcp-client.js';
 
 export interface WeeklyRunDependencies {
   recipeSource: RecipeSource;
@@ -26,6 +28,11 @@ export interface WeeklyRunDependencies {
   staticConfig: StaticConfig;
 }
 
+type RunGrocerCache = {
+  searchByQuery: Map<string, ReturnType<GrocerClient['searchProducts']>>;
+  deliverySlots?: ReturnType<GrocerClient['getDeliverySlots']>;
+};
+
 export class WeeklyRunOrchestrator {
   constructor(private deps: WeeklyRunDependencies) {}
 
@@ -33,7 +40,7 @@ export class WeeklyRunOrchestrator {
     if (!notes.includes(message)) notes.push(message);
   }
 
-  private async evaluateCandidateCart(candidate: MealCombinationCandidate): Promise<MealCombinationCandidate> {
+  private async evaluateCandidateCart(candidate: MealCombinationCandidate, cache: RunGrocerCache): Promise<MealCombinationCandidate> {
     const caps = await this.deps.grocerClient.getCapabilities();
     const discounts = caps.discounts ? await this.deps.grocerClient.getDiscounts() : [];
     const discountIndex = buildDiscountIndex(discounts);
@@ -45,9 +52,15 @@ export class WeeklyRunOrchestrator {
       for (const ingredient of scored.recipe.ingredients) {
         const override = this.deps.staticConfig.productOverrides[ingredient.normalizedName];
         const query = override?.preferredQuery ?? ingredient.name;
+        const cacheKey = normalizeText(query);
         let search;
         try {
-          search = await this.deps.grocerClient.searchProducts(query);
+          let searchPromise = cache.searchByQuery.get(cacheKey);
+          if (!searchPromise) {
+            searchPromise = this.deps.grocerClient.searchProducts(query);
+            cache.searchByQuery.set(cacheKey, searchPromise);
+          }
+          search = await searchPromise;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           console.error(`[grocer] product search failed for "${query}": ${message}`);
@@ -89,7 +102,8 @@ export class WeeklyRunOrchestrator {
     let slots: import('../types.js').DeliverySlot[] = [];
     if (caps.deliverySlots) {
       try {
-        slots = await this.deps.grocerClient.getDeliverySlots();
+        cache.deliverySlots ??= this.deps.grocerClient.getDeliverySlots();
+        slots = await cache.deliverySlots;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[grocer] delivery slot lookup failed: ${message}`);
@@ -103,6 +117,9 @@ export class WeeklyRunOrchestrator {
   async run(trigger: 'scheduled' | 'manual' = 'scheduled'): Promise<ProposalRecord> {
     const recentMeals = await this.deps.historyStore.getRecentMeals(14);
     const recipes = await this.deps.recipeSource.listRecipes();
+    const cache: RunGrocerCache = {
+      searchByQuery: new Map()
+    };
     if (recipes.length < 2) {
       throw new Error('Need at least 2 enabled recipes in Notion to build a weekly plan.');
     }
@@ -128,13 +145,13 @@ export class WeeklyRunOrchestrator {
 
     const cartEvalLimit = Math.min(4, candidates.length);
     for (let i = 0; i < cartEvalLimit; i += 1) {
-      candidates[i] = await this.evaluateCandidateCart(candidates[i]!);
+      candidates[i] = await this.evaluateCandidateCart(candidates[i]!, cache);
     }
     candidates = rerankCandidatesWithCartSignals(candidates);
 
     let selected = candidates.find((candidate) => candidate.cartProposal) ?? candidates[0]!;
     if (!selected.cartProposal) {
-      selected = await this.evaluateCandidateCart(selected);
+      selected = await this.evaluateCandidateCart(selected, cache);
     }
     if (selected.cartProposal) {
       try {
@@ -159,6 +176,17 @@ export class WeeklyRunOrchestrator {
 
     proposal.messageText = formatProposalMessage(proposal);
     proposal.candidate.rationale.push(`trigger=${trigger}`);
+
+    if (this.deps.grocerClient instanceof KifliMcpClient) {
+      const stats = this.deps.grocerClient.getRequestStats();
+      console.error('[weekly-run] grocer stats', JSON.stringify(stats, null, 2));
+      if (stats.rateLimitErrors > 0 && selected.cartProposal) {
+        selected.cartProposal.grocerNotes.push(
+          `Kifli MCP rate-limited this run (${stats.rateLimitErrors}/${stats.totalCalls} failed with 429).`
+        );
+        proposal.messageText = formatProposalMessage(proposal);
+      }
+    }
 
     await this.deps.historyStore.saveProposal(proposal);
     const sendResult = await this.deps.notifier.sendProposal(proposal);
