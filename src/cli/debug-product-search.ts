@@ -63,6 +63,7 @@ async function main() {
         );
       }
     }
+    client.logRequestSummary('debug-product-search');
   } finally {
     await client.close();
   }
