@@ -121,6 +121,97 @@ function parseSearchProductsText(text: string): GrocerProduct[] {
 }
 
 function parseDeliverySlotsText(text: string): DeliverySlot[] {
+  const dedupeSlots = (slots: DeliverySlot[]) => {
+    const byId = new Map<string, DeliverySlot>();
+    for (const slot of slots) {
+      if (!byId.has(slot.id)) byId.set(slot.id, slot);
+    }
+    return [...byId.values()];
+  };
+
+  const fromStructuredJson = (parsed: {
+    preselectedSlots?: Array<{
+      slot?: {
+        slotId?: number | string;
+        price?: number;
+        timeWindow?: string;
+        interval?: { since?: string; till?: string };
+      } | null;
+      subtitle?: string | null;
+      title?: string;
+    }>;
+    availabilityDays?: Array<{
+      date?: string;
+      label?: string;
+      slots?: Record<string, Array<{
+        slotId?: number | string;
+        price?: number;
+        timeWindow?: string;
+        interval?: { since?: string; till?: string };
+      }>>;
+    }>;
+  }) => {
+    const preferred = (parsed.preselectedSlots ?? [])
+      .filter((entry) => entry.slot)
+      .map((entry) => ({
+        id: String(entry.slot?.slotId ?? `${entry.title}-${entry.subtitle}`),
+        label: [entry.title, entry.subtitle].filter(Boolean).join(' ').trim() || entry.slot?.timeWindow || 'Delivery slot',
+        startsAt: entry.slot?.interval?.since,
+        endsAt: entry.slot?.interval?.till,
+        fee: entry.slot?.price,
+        available: true,
+        raw: entry
+      } satisfies DeliverySlot));
+
+    const flattened = (parsed.availabilityDays ?? []).flatMap((day) =>
+      Object.values(day.slots ?? {}).flatMap((slots) =>
+        slots.map((slot) => ({
+          id: String(slot.slotId ?? `${day.date}-${slot.timeWindow}`),
+          label: [day.label ?? day.date, slot.timeWindow].filter(Boolean).join(' ').trim() || 'Delivery slot',
+          startsAt: slot.interval?.since,
+          endsAt: slot.interval?.till,
+          fee: slot.price,
+          available: true,
+          raw: slot
+        } satisfies DeliverySlot))
+      )
+    );
+
+    const deduped = dedupeSlots([...preferred, ...flattened]);
+    return deduped;
+  };
+
+  const jsonMatch = text.match(/\{[\s\S]*\}$/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as {
+        preselectedSlots?: Array<{
+          slot?: {
+            slotId?: number | string;
+            price?: number;
+            timeWindow?: string;
+            interval?: { since?: string; till?: string };
+          } | null;
+          subtitle?: string | null;
+          title?: string;
+        }>;
+        availabilityDays?: Array<{
+          date?: string;
+          slots?: Record<string, Array<{
+            slotId?: number | string;
+            price?: number;
+            timeWindow?: string;
+            interval?: { since?: string; till?: string };
+          }>>;
+        }>;
+      };
+      const slots = fromStructuredJson(parsed);
+      if (slots.length > 0) return slots;
+    } catch {
+      // Fall back to line-based parsing below.
+    }
+  }
+
   const chunks = text
     .split(/\n\s*\n/)
     .map((chunk) => chunk.trim())
@@ -374,7 +465,8 @@ export class KifliMcpClient implements GrocerClient {
           packageSize: typeof p.packageSize === 'number' ? p.packageSize : undefined,
           currency: p.currency,
           tags: Array.isArray(p.tags) ? p.tags.map(String) : undefined,
-          isDiscounted: Boolean(p.isDiscounted ?? (p.discountedPrice != null) ?? (p.salePrice != null)),
+          isDiscounted:
+            typeof p.isDiscounted === 'boolean' ? p.isDiscounted : p.discountedPrice != null || p.salePrice != null,
           raw: p
         }))
       : text
@@ -410,7 +502,9 @@ export class KifliMcpClient implements GrocerClient {
 
   async setCart(lines: MatchedCartLine[]): Promise<unknown> {
     const matched = lines.filter((l) => l.matched && l.productId);
-    const payload = matched.map((l) => ({ product_id: l.productId, quantity: l.quantityToAdd ?? 1 }));
+    const payload = matched
+      .map((l) => ({ product_id: Number(l.productId), quantity: l.quantityToAdd ?? 1 }))
+      .filter((item) => Number.isFinite(item.product_id));
 
     try {
       return await this.callTool(['set_cart', 'cart_set'], { items: payload });
@@ -420,32 +514,33 @@ export class KifliMcpClient implements GrocerClient {
   }
 
   async getDeliverySlots(): Promise<DeliverySlot[]> {
-    try {
-      await this.ensureConnected();
-      const toolName = this.findToolName(['get_delivery_slots', 'delivery_slots', 'delivery slots']);
-      if (!toolName) throw new Error('No MCP delivery slot tool found');
-      const result = await this.client?.callTool?.({ name: toolName, arguments: {} });
-      const toolError = extractToolError(result);
-      if (toolError) {
-        throw new Error(`get_delivery_slots failed: ${toolError}`);
-      }
-      const raw = flattenContent(result);
-      const text = extractTextContent(result);
-      return asArray<any>(raw).length
-        ? asArray<any>(raw).map((slot) => ({
-            id: String(slot.id ?? slot.slotId ?? slot.slot_id ?? slot.label ?? Math.random()),
-            label: String(slot.label ?? slot.name ?? slot.window ?? 'Delivery slot'),
-            startsAt: slot.startsAt ?? slot.start,
-            endsAt: slot.endsAt ?? slot.end,
-            fee: typeof slot.fee === 'number' ? slot.fee : undefined,
-            available: slot.available !== false,
-            raw: slot
-          }))
-        : text
-          ? parseDeliverySlotsText(text)
-          : [];
-    } catch {
-      return [];
+    await this.ensureConnected();
+    const toolName = this.findToolName(['get_delivery_slots', 'delivery_slots', 'delivery slots']);
+    if (!toolName) throw new Error('No MCP delivery slot tool found');
+    const result = await this.invokeTool(toolName, {});
+    const toolError = extractToolError(result);
+    if (toolError) {
+      throw new Error(`get_delivery_slots failed: ${toolError}`);
     }
+    const raw = flattenContent(result);
+    const text = extractTextContent(result);
+    return asArray<any>(raw).length
+      ? asArray<any>(raw).map((slot) => ({
+          id: String(slot.id ?? slot.slotId ?? slot.slot_id ?? slot.label ?? Math.random()),
+          label: String(slot.label ?? slot.name ?? slot.window ?? slot.timeWindow ?? 'Delivery slot'),
+          startsAt: slot.startsAt ?? slot.start ?? slot.interval?.since,
+          endsAt: slot.endsAt ?? slot.end ?? slot.interval?.till,
+          fee:
+            typeof slot.fee === 'number'
+              ? slot.fee
+              : typeof slot.price === 'number'
+                ? slot.price
+                : undefined,
+          available: slot.available !== false,
+          raw: slot
+        }))
+      : text
+        ? parseDeliverySlotsText(text)
+        : [];
   }
 }
