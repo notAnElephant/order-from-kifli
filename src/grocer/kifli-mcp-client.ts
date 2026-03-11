@@ -1,5 +1,4 @@
 import type {
-  DeliverySlot,
   DiscountInfo,
   GrocerClient,
   GrocerClientCapabilities,
@@ -205,123 +204,6 @@ function parsePurchaseHistoryText(text: string): Record<string, PurchaseHistoryS
   return store;
 }
 
-function parseDeliverySlotsText(text: string): DeliverySlot[] {
-  const dedupeSlots = (slots: DeliverySlot[]) => {
-    const byId = new Map<string, DeliverySlot>();
-    for (const slot of slots) {
-      if (!byId.has(slot.id)) byId.set(slot.id, slot);
-    }
-    return [...byId.values()];
-  };
-
-  const fromStructuredJson = (parsed: {
-    preselectedSlots?: Array<{
-      slot?: {
-        slotId?: number | string;
-        price?: number;
-        timeWindow?: string;
-        interval?: { since?: string; till?: string };
-      } | null;
-      subtitle?: string | null;
-      title?: string;
-    }>;
-    availabilityDays?: Array<{
-      date?: string;
-      label?: string;
-      slots?: Record<string, Array<{
-        slotId?: number | string;
-        price?: number;
-        timeWindow?: string;
-        interval?: { since?: string; till?: string };
-      }>>;
-    }>;
-  }) => {
-    const preferred = (parsed.preselectedSlots ?? [])
-      .filter((entry) => entry.slot)
-      .map((entry) => ({
-        id: String(entry.slot?.slotId ?? `${entry.title}-${entry.subtitle}`),
-        label: [entry.title, entry.subtitle].filter(Boolean).join(' ').trim() || entry.slot?.timeWindow || 'Delivery slot',
-        startsAt: entry.slot?.interval?.since,
-        endsAt: entry.slot?.interval?.till,
-        fee: entry.slot?.price,
-        available: true,
-        raw: entry
-      } satisfies DeliverySlot));
-
-    const flattened = (parsed.availabilityDays ?? []).flatMap((day) =>
-      Object.values(day.slots ?? {}).flatMap((slots) =>
-        slots.map((slot) => ({
-          id: String(slot.slotId ?? `${day.date}-${slot.timeWindow}`),
-          label: [day.label ?? day.date, slot.timeWindow].filter(Boolean).join(' ').trim() || 'Delivery slot',
-          startsAt: slot.interval?.since,
-          endsAt: slot.interval?.till,
-          fee: slot.price,
-          available: true,
-          raw: slot
-        } satisfies DeliverySlot))
-      )
-    );
-
-    const deduped = dedupeSlots([...preferred, ...flattened]);
-    return deduped;
-  };
-
-  const jsonMatch = text.match(/\{[\s\S]*\}$/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]) as {
-        preselectedSlots?: Array<{
-          slot?: {
-            slotId?: number | string;
-            price?: number;
-            timeWindow?: string;
-            interval?: { since?: string; till?: string };
-          } | null;
-          subtitle?: string | null;
-          title?: string;
-        }>;
-        availabilityDays?: Array<{
-          date?: string;
-          slots?: Record<string, Array<{
-            slotId?: number | string;
-            price?: number;
-            timeWindow?: string;
-            interval?: { since?: string; till?: string };
-          }>>;
-        }>;
-      };
-      const slots = fromStructuredJson(parsed);
-      if (slots.length > 0) return slots;
-    } catch {
-      // Fall back to line-based parsing below.
-    }
-  }
-
-  const chunks = text
-    .split(/\n\s*\n/)
-    .map((chunk) => chunk.trim())
-    .filter((chunk) => /^\d+\.\s/.test(chunk));
-
-  return chunks.map((chunk, index) => {
-    const lines = chunk.split('\n').map((line) => line.trim());
-    const firstLine = lines[0] ?? '';
-    const slotMatch = firstLine.match(/^\d+\.\s+(.*?)\s+([0-9]{1,2}[:.][0-9]{2}.*|Unknown time)$/i);
-    const datePart = slotMatch?.[1]?.trim() ?? firstLine.replace(/^\d+\.\s+/, '').trim();
-    const timePart = slotMatch?.[2]?.trim();
-    const price = parsePriceNumber(lines.find((line) => /^Price:/i.test(line))?.replace(/^Price:\s*/i, ''));
-    const availableLine = lines.find((line) => /^Available:/i.test(line))?.replace(/^Available:\s*/i, '').trim();
-    const available = availableLine ? /^(yes|true|ano)$/i.test(availableLine) : true;
-
-    return {
-      id: `${datePart}-${timePart ?? index}`,
-      label: [datePart, timePart].filter(Boolean).join(' ').trim() || firstLine.replace(/^\d+\.\s+/, ''),
-      fee: price,
-      available,
-      raw: { text: chunk }
-    } satisfies DeliverySlot;
-  });
-}
-
 export class KifliMcpClient implements GrocerClient {
   private email: string;
   private password: string;
@@ -408,7 +290,6 @@ export class KifliMcpClient implements GrocerClient {
       cartRead: has('get_cart_content') || has('cart', 'content') || has('cart'),
       cartMutate:
         has('add_to_cart') || has('remove_from_cart') || has('update_cart') || has('modify_cart') || has('cart'),
-      deliverySlots: has('get_delivery_slots') || has('delivery', 'slots') || has('slot'),
       ordersHistory: has('get_order_history') || has('order', 'history') || has('orders')
     };
   }
@@ -608,36 +489,5 @@ export class KifliMcpClient implements GrocerClient {
     } catch {
       return this.callTool(['add_to_cart', 'cart_add'], { products: payload });
     }
-  }
-
-  async getDeliverySlots(): Promise<DeliverySlot[]> {
-    await this.ensureConnected();
-    const toolName = this.findToolName(['get_delivery_slots', 'delivery_slots', 'delivery slots']);
-    if (!toolName) throw new Error('No MCP delivery slot tool found');
-    const result = await this.invokeTool(toolName, {});
-    const toolError = extractToolError(result);
-    if (toolError) {
-      throw new Error(`get_delivery_slots failed: ${toolError}`);
-    }
-    const raw = flattenContent(result);
-    const text = extractTextContent(result);
-    return asArray<any>(raw).length
-      ? asArray<any>(raw).map((slot) => ({
-          id: String(slot.id ?? slot.slotId ?? slot.slot_id ?? slot.label ?? Math.random()),
-          label: String(slot.label ?? slot.name ?? slot.window ?? slot.timeWindow ?? 'Delivery slot'),
-          startsAt: slot.startsAt ?? slot.start ?? slot.interval?.since,
-          endsAt: slot.endsAt ?? slot.end ?? slot.interval?.till,
-          fee:
-            typeof slot.fee === 'number'
-              ? slot.fee
-              : typeof slot.price === 'number'
-                ? slot.price
-                : undefined,
-          available: slot.available !== false,
-          raw: slot
-        }))
-      : text
-        ? parseDeliverySlotsText(text)
-        : [];
   }
 }

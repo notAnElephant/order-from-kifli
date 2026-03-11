@@ -1,4 +1,4 @@
-import type { CartLine, CartProposal, DeliverySlot, MatchedCartLine } from '../types.js';
+import type { CartLine, CartProposal, MatchedCartLine } from '../types.js';
 
 function toCartLine(line: MatchedCartLine): CartLine {
   return {
@@ -35,7 +35,6 @@ export function aggregateMatchedLines(lines: MatchedCartLine[]): MatchedCartLine
 
 export function buildCartProposal(input: {
   matchedLines: MatchedCartLine[];
-  slots?: DeliverySlot[];
   notes?: string[];
 }): CartProposal {
   const aggregated = aggregateMatchedLines(input.matchedLines);
@@ -52,8 +51,6 @@ export function buildCartProposal(input: {
     .filter((l) => l.matched && l.productName && l.productName.toLowerCase() !== l.ingredientName.toLowerCase())
     .map((l) => `${l.ingredientName} -> ${l.productName}`);
 
-  const availableSlots = (input.slots ?? []).filter((s) => s.available);
-
   return {
     cartLines,
     matchedLines: aggregated,
@@ -62,8 +59,6 @@ export function buildCartProposal(input: {
     estimatedSavings,
     unmatchedIngredients,
     substitutions,
-    selectedSlot: availableSlots[0],
-    alternativeSlots: availableSlots.slice(1, 4),
     grocerNotes: input.notes ?? []
   };
 }

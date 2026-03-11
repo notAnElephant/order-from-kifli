@@ -45,9 +45,7 @@ export async function createApp() {
   });
 
   const approvalHandler = new ApprovalHandler({
-    historyStore,
-    grocerClient,
-    notifier
+    historyStore
   });
 
   async function startBot() {
@@ -66,8 +64,7 @@ export async function createApp() {
       onRebuild: async () => {
         await weeklyRun.run('manual');
         return 'Rebuilt proposal and sent a new message.';
-      },
-      onNextSlot: (proposalId) => approvalHandler.nextSlot(proposalId)
+      }
     });
   }
 

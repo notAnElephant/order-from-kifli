@@ -1,6 +1,38 @@
 import { Bot, InlineKeyboard } from 'grammy';
 import type { Notifier, ProposalRecord } from '../types.js';
-import { formatProposalMessage } from './formatters.js';
+
+const PRIVATE_COMMANDS = [
+  { command: 'start', description: 'Show onboarding and capabilities' },
+  { command: 'help', description: 'Show help and command list' },
+  { command: 'plan', description: 'Generate a new weekly proposal' }
+] as const;
+
+const GROUP_COMMANDS = [
+  { command: 'help', description: 'Show help and command list' },
+  { command: 'plan', description: 'Generate a new weekly proposal' }
+] as const;
+
+const HELP_TEXT = [
+  'Recipe-to-Kifli assistant',
+  '',
+  'Available commands:',
+  '/start - show onboarding and current capabilities',
+  '/help - show this help message',
+  '/plan - generate a new weekly proposal',
+  '',
+  'What the bot does:',
+  '- reads recipes from Notion',
+  '- selects a weekly meal plan',
+  '- builds a Kifli cart',
+  '- sends a proposal for approval',
+  '',
+  'What it does not do:',
+  '- it does not place the order',
+  '- it does not select a delivery slot',
+  '',
+  'After approval, finish checkout here:',
+  'https://www.kifli.hu/rendeles/kosaram-tartalma'
+].join('\n');
 
 export class TelegramNotifier implements Notifier {
   private bot: Bot;
@@ -20,8 +52,7 @@ export class TelegramNotifier implements Notifier {
       .text('Approve', `approve:${proposal.id}`)
       .text('Reject', `reject:${proposal.id}`)
       .row()
-      .text('Rebuild', `rebuild:${proposal.id}`)
-      .text('Next slot', `nextslot:${proposal.id}`);
+      .text('Rebuild', `rebuild:${proposal.id}`);
 
     const message = await this.bot.api.sendMessage(this.chatId, proposal.messageText, {
       reply_markup: keyboard
@@ -40,8 +71,7 @@ export class TelegramNotifier implements Notifier {
       .text('Approve', `approve:${proposal.id}`)
       .text('Reject', `reject:${proposal.id}`)
       .row()
-      .text('Rebuild', `rebuild:${proposal.id}`)
-      .text('Next slot', `nextslot:${proposal.id}`);
+      .text('Rebuild', `rebuild:${proposal.id}`);
 
     await this.bot.api.editMessageText(this.chatId, proposal.telegramMessageId, proposal.messageText, {
       reply_markup: keyboard
@@ -54,12 +84,31 @@ export interface TelegramBotHandlers {
   onApprove: (proposalId: string) => Promise<string>;
   onReject: (proposalId: string) => Promise<string>;
   onRebuild: (proposalId: string) => Promise<string>;
-  onNextSlot: (proposalId: string) => Promise<string>;
+}
+
+async function registerBotCommands(bot: Bot) {
+  await bot.api.setMyCommands([...PRIVATE_COMMANDS], {
+    scope: {
+      type: 'all_private_chats'
+    }
+  });
+
+  await bot.api.setMyCommands([...GROUP_COMMANDS], {
+    scope: {
+      type: 'all_group_chats'
+    }
+  });
 }
 
 export async function startTelegramBot(bot: Bot, handlers: TelegramBotHandlers): Promise<void> {
+  await registerBotCommands(bot);
+
   bot.command('start', async (ctx) => {
-    await ctx.reply('Recipe-to-Kifli assistant is running. Use /plan to generate a proposal.');
+    await ctx.reply(HELP_TEXT);
+  });
+
+  bot.command('help', async (ctx) => {
+    await ctx.reply(HELP_TEXT);
   });
 
   bot.command('plan', async (ctx) => {
@@ -88,14 +137,5 @@ export async function startTelegramBot(bot: Bot, handlers: TelegramBotHandlers):
     await ctx.reply(msg);
   });
 
-  bot.callbackQuery(/^nextslot:(.+)$/, async (ctx) => {
-    const proposalId = String(ctx.match[1]);
-    const msg = await handlers.onNextSlot(proposalId);
-    await ctx.answerCallbackQuery({ text: 'Slot updated' });
-    await ctx.reply(msg);
-  });
-
   await bot.start();
 }
-
-export { formatProposalMessage };

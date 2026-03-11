@@ -31,7 +31,6 @@ export interface WeeklyRunDependencies {
 
 type RunGrocerCache = {
   searchByQuery: Map<string, ReturnType<GrocerClient['searchProducts']>>;
-  deliverySlots?: ReturnType<GrocerClient['getDeliverySlots']>;
 };
 
 export class WeeklyRunOrchestrator {
@@ -104,18 +103,7 @@ export class WeeklyRunOrchestrator {
       }
     }
 
-    let slots: import('../types.js').DeliverySlot[] = [];
-    if (caps.deliverySlots) {
-      try {
-        cache.deliverySlots ??= this.deps.grocerClient.getDeliverySlots();
-        slots = await cache.deliverySlots;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[grocer] delivery slot lookup failed: ${message}`);
-        this.pushGrocerNote(grocerNotes, `Delivery slot lookup failed: ${message}`);
-      }
-    }
-    candidate.cartProposal = buildCartProposal({ matchedLines, slots, notes: grocerNotes });
+    candidate.cartProposal = buildCartProposal({ matchedLines, notes: grocerNotes });
     return candidate;
   }
 
