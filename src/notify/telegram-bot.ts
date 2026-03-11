@@ -47,22 +47,39 @@ export class TelegramNotifier implements Notifier {
     return this.bot;
   }
 
-  async sendProposal(proposal: ProposalRecord): Promise<{ messageId?: number }> {
+  private resolveChatId(chatId?: string | number): string | number {
+    return chatId ?? this.chatId;
+  }
+
+  async sendProposal(
+    proposal: ProposalRecord,
+    options?: { replaceMessageId?: number; chatId?: string | number }
+  ): Promise<{ messageId?: number }> {
+    const targetChatId = this.resolveChatId(options?.chatId);
     const keyboard = new InlineKeyboard()
       .text('Approve', `approve:${proposal.id}`)
       .text('Reject', `reject:${proposal.id}`)
       .row()
       .text('Rebuild', `rebuild:${proposal.id}`);
 
-    const message = await this.bot.api.sendMessage(this.chatId, proposal.messageText, {
-      reply_markup: keyboard
-    });
+    if (options?.replaceMessageId) {
+      try {
+        await this.bot.api.editMessageText(targetChatId, options.replaceMessageId, proposal.messageText, {
+          reply_markup: keyboard
+        });
+        return { messageId: options.replaceMessageId };
+      } catch (error) {
+        if (!isEditTargetMissingError(error)) throw error;
+      }
+    }
+
+    const message = await this.bot.api.sendMessage(targetChatId, proposal.messageText, { reply_markup: keyboard });
 
     return { messageId: message.message_id };
   }
 
-  async sendStatus(message: string): Promise<void> {
-    await this.bot.api.sendMessage(this.chatId, message);
+  async sendStatus(message: string, options?: { chatId?: string | number }): Promise<void> {
+    await this.bot.api.sendMessage(this.resolveChatId(options?.chatId), message);
   }
 
   async updateProposalMessage(proposal: ProposalRecord): Promise<void> {
@@ -80,10 +97,52 @@ export class TelegramNotifier implements Notifier {
 }
 
 export interface TelegramBotHandlers {
-  onManualPlan: () => Promise<void>;
+  onManualPlan: (
+    options?: { statusMessageId?: number; chatId?: string | number; reportProgress?: (message: string) => Promise<void> }
+  ) => Promise<void>;
   onApprove: (proposalId: string) => Promise<string>;
   onReject: (proposalId: string) => Promise<string>;
-  onRebuild: (proposalId: string) => Promise<string>;
+  onRebuild: (
+    proposalId: string,
+    options?: { statusMessageId?: number; chatId?: string | number; reportProgress?: (message: string) => Promise<void> }
+  ) => Promise<string>;
+}
+
+function isMessageNotModifiedError(error: unknown): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes('message is not modified');
+}
+
+function isEditTargetMissingError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('message to edit not found') ||
+    message.includes('message can\'t be edited') ||
+    message.includes('message identifier is not specified')
+  );
+}
+
+function createStatusUpdater(bot: Bot, chatId: number | string, messageId: number) {
+  let activeMessageId = messageId;
+  let lastMessage = '';
+
+  return async (message: string) => {
+    if (message === lastMessage) return;
+    try {
+      await bot.api.editMessageText(chatId, activeMessageId, message);
+      lastMessage = message;
+    } catch (error) {
+      if (isMessageNotModifiedError(error)) {
+        lastMessage = message;
+        return;
+      }
+      if (!isEditTargetMissingError(error)) throw error;
+
+      const sent = await bot.api.sendMessage(chatId, message);
+      activeMessageId = sent.message_id;
+      lastMessage = message;
+    }
+  };
 }
 
 async function registerBotCommands(bot: Bot) {
@@ -112,8 +171,14 @@ export async function startTelegramBot(bot: Bot, handlers: TelegramBotHandlers):
   });
 
   bot.command('plan', async (ctx) => {
-    await ctx.reply('Generating a new weekly plan...');
-    await handlers.onManualPlan();
+    const status = await ctx.reply('Generating weekly plan...');
+    if (ctx.chatId == null) return;
+    const updateStatus = createStatusUpdater(bot, ctx.chatId, status.message_id);
+    await handlers.onManualPlan({
+      statusMessageId: status.message_id,
+      chatId: ctx.chatId,
+      reportProgress: updateStatus
+    });
   });
 
   bot.callbackQuery(/^approve:(.+)$/, async (ctx) => {
@@ -132,8 +197,15 @@ export async function startTelegramBot(bot: Bot, handlers: TelegramBotHandlers):
 
   bot.callbackQuery(/^rebuild:(.+)$/, async (ctx) => {
     const proposalId = String(ctx.match[1]);
-    const msg = await handlers.onRebuild(proposalId);
     await ctx.answerCallbackQuery({ text: 'Rebuilding' });
+    const status = await ctx.reply('Rebuilding weekly plan...');
+    if (ctx.chatId == null) return;
+    const updateStatus = createStatusUpdater(bot, ctx.chatId, status.message_id);
+    const msg = await handlers.onRebuild(proposalId, {
+      statusMessageId: status.message_id,
+      chatId: ctx.chatId,
+      reportProgress: updateStatus
+    });
     await ctx.reply(msg);
   });
 

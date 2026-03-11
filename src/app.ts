@@ -51,19 +51,24 @@ export async function createApp() {
   async function startBot() {
     const bot = notifier.getBot();
     await startTelegramBot(bot, {
-      onManualPlan: async () => {
+      onManualPlan: async (options) => {
         try {
-          await weeklyRun.run('manual');
+          await weeklyRun.run('manual', options?.reportProgress, options?.statusMessageId, options?.chatId);
         } catch (error) {
           logger.error({ err: error }, 'manual plan failed');
-          await notifier.sendStatus(`Manual plan failed: ${error instanceof Error ? error.message : String(error)}`);
+          const message = `Manual plan failed: ${error instanceof Error ? error.message : String(error)}`;
+          if (options?.reportProgress) {
+            await options.reportProgress(message);
+          } else {
+            await notifier.sendStatus(message, { chatId: options?.chatId });
+          }
         }
       },
       onApprove: (proposalId) => approvalHandler.approve(proposalId),
       onReject: (proposalId) => approvalHandler.reject(proposalId),
-      onRebuild: async () => {
-        await weeklyRun.run('manual');
-        return 'Rebuilt proposal and sent a new message.';
+      onRebuild: async (_proposalId, options) => {
+        await weeklyRun.run('manual', options?.reportProgress, options?.statusMessageId, options?.chatId);
+        return 'Rebuilt proposal.';
       }
     });
   }

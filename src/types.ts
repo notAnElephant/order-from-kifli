@@ -198,8 +198,11 @@ export interface GrocerClient {
 }
 
 export interface Notifier {
-  sendProposal(proposal: ProposalRecord): Promise<{ messageId?: number }>;
-  sendStatus(message: string): Promise<void>;
+  sendProposal(
+    proposal: ProposalRecord,
+    options?: { replaceMessageId?: number; chatId?: string | number }
+  ): Promise<{ messageId?: number }>;
+  sendStatus(message: string, options?: { chatId?: string | number }): Promise<void>;
   updateProposalMessage?(proposal: ProposalRecord): Promise<void>;
 }
 

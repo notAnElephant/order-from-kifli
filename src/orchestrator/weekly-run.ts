@@ -29,6 +29,8 @@ export interface WeeklyRunDependencies {
   staticConfig: StaticConfig;
 }
 
+export type WeeklyRunProgressReporter = (message: string) => Promise<void>;
+
 type RunGrocerCache = {
   searchByQuery: Map<string, ReturnType<GrocerClient['searchProducts']>>;
 };
@@ -107,7 +109,13 @@ export class WeeklyRunOrchestrator {
     return candidate;
   }
 
-  async run(trigger: 'scheduled' | 'manual' = 'scheduled'): Promise<ProposalRecord> {
+  async run(
+    trigger: 'scheduled' | 'manual' = 'scheduled',
+    reportProgress?: WeeklyRunProgressReporter,
+    proposalMessageId?: number,
+    proposalChatId?: string | number
+  ): Promise<ProposalRecord> {
+    await reportProgress?.('Reading recipes from Notion...');
     const recentMeals = await this.deps.historyStore.getRecentMeals(14);
     const recipes = await this.deps.recipeSource.listRecipes();
     const cache: RunGrocerCache = {
@@ -117,6 +125,7 @@ export class WeeklyRunOrchestrator {
       throw new Error('Need at least 2 enabled recipes in Notion to build a weekly plan.');
     }
 
+    await reportProgress?.('Scoring recipes and selecting the weekly plan...');
     const scoredRecipes = rankRecipes(recipes, {
       timezone: this.deps.timezone,
       recentMeals,
@@ -136,6 +145,7 @@ export class WeeklyRunOrchestrator {
       throw new Error('No meal combinations could be generated from available recipes.');
     }
 
+    await reportProgress?.('Matching ingredients on Kifli...');
     const cartEvalLimit = Math.min(4, candidates.length);
     for (let i = 0; i < cartEvalLimit; i += 1) {
       candidates[i] = await this.evaluateCandidateCart(candidates[i]!, cache);
@@ -147,6 +157,7 @@ export class WeeklyRunOrchestrator {
       selected = await this.evaluateCandidateCart(selected, cache);
     }
     if (selected.cartProposal) {
+      await reportProgress?.('Building cart on Kifli...');
       try {
         await this.deps.grocerClient.setCart(selected.cartProposal.matchedLines);
       } catch (error) {
@@ -182,7 +193,11 @@ export class WeeklyRunOrchestrator {
     }
 
     await this.deps.historyStore.saveProposal(proposal);
-    const sendResult = await this.deps.notifier.sendProposal(proposal);
+    await reportProgress?.('Proposal ready.');
+    const sendResult = await this.deps.notifier.sendProposal(proposal, {
+      replaceMessageId: proposalMessageId,
+      chatId: proposalChatId
+    });
     if (sendResult.messageId) {
       proposal.telegramMessageId = sendResult.messageId;
       await this.deps.historyStore.setProposalTelegramMessageId(proposal.id, sendResult.messageId);
