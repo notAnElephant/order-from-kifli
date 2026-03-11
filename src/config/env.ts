@@ -12,6 +12,7 @@ const EnvSchema = z.object({
   KIFLI_PASSWORD: z.string().min(1),
   ROHLIK_BASE_URL: z.string().optional().default('https://www.kifli.hu'),
   ROHLIK_DEBUG: z.string().optional().default('false'),
+  ROHLIK_TRACE: z.string().optional().default('false'),
   TIMEZONE: z.string().default('Europe/Budapest'),
   WEEKLY_RUN_CRON: z.string().default('0 10 * * 4'),
   WEEKLY_TARGET_TOTAL_MINUTES: z.coerce.number().default(180),
@@ -28,6 +29,7 @@ export type AppEnv = {
   kifliPassword: string;
   rohlikBaseUrl: string;
   rohlikDebug: boolean;
+  rohlikTrace: boolean;
   timezone: string;
   weeklyRunCron: string;
   weeklyTargetTotalMinutes: number;
@@ -46,6 +48,7 @@ export function loadEnv(): AppEnv {
     kifliPassword: parsed.KIFLI_PASSWORD,
     rohlikBaseUrl: parsed.ROHLIK_BASE_URL,
     rohlikDebug: ['1', 'true', 'yes'].includes(parsed.ROHLIK_DEBUG.toLowerCase()),
+    rohlikTrace: ['1', 'true', 'yes'].includes(parsed.ROHLIK_TRACE.toLowerCase()),
     timezone: parsed.TIMEZONE,
     weeklyRunCron: parsed.WEEKLY_RUN_CRON,
     weeklyTargetTotalMinutes: parsed.WEEKLY_TARGET_TOTAL_MINUTES,
