@@ -1,5 +1,6 @@
 import { Bot, InlineKeyboard } from 'grammy';
 import type { Notifier, ProposalRecord, Recipe, RecipeSwapOption } from '../types.js';
+import { createId } from '../utils/ids.js';
 
 const PRIVATE_COMMANDS = [
   { command: 'start', description: 'Show onboarding and capabilities' },
@@ -39,6 +40,12 @@ const HELP_TEXT = [
 
 const STALE_COMMAND_WINDOW_SECONDS = 120;
 const RECIPE_PAGE_SIZE = 10;
+const RECIPE_SESSION_TTL_MS = 10 * 60_000;
+
+type RecipePageSession = {
+  recipes: Recipe[];
+  createdAt: number;
+};
 
 function createProposalKeyboard(proposalId: string) {
   return new InlineKeyboard()
@@ -135,14 +142,14 @@ function formatRecipePage(recipes: Recipe[], offset: number): string {
   ].join('\n');
 }
 
-function createRecipePageKeyboard(recipes: Recipe[], offset: number) {
+function createRecipePageKeyboard(recipes: Recipe[], sessionId: string, offset: number) {
   const safeOffset = Math.max(0, Math.min(offset, Math.max(0, recipes.length - 1)));
   const keyboard = new InlineKeyboard();
   if (safeOffset > 0) {
-    keyboard.text('Prev 10', `recipespage:${Math.max(0, safeOffset - RECIPE_PAGE_SIZE)}`);
+    keyboard.text('Prev 10', `recipespage:${sessionId}:${Math.max(0, safeOffset - RECIPE_PAGE_SIZE)}`);
   }
   if (safeOffset + RECIPE_PAGE_SIZE < recipes.length) {
-    keyboard.text('Next 10', `recipespage:${safeOffset + RECIPE_PAGE_SIZE}`);
+    keyboard.text('Next 10', `recipespage:${sessionId}:${safeOffset + RECIPE_PAGE_SIZE}`);
   }
   return keyboard;
 }
@@ -300,6 +307,22 @@ async function registerBotCommands(bot: Bot) {
 }
 
 export async function startTelegramBot(bot: Bot, handlers: TelegramBotHandlers): Promise<void> {
+  const recipeSessions = new Map<string, RecipePageSession>();
+
+  const createRecipeSession = (recipes: Recipe[]): string => {
+    const sessionId = createId('recipes');
+    recipeSessions.set(sessionId, { recipes, createdAt: Date.now() });
+    return sessionId;
+  };
+
+  const getRecipeSession = (sessionId: string): RecipePageSession | null => {
+    const session = recipeSessions.get(sessionId);
+    if (!session) return null;
+    if (Date.now() - session.createdAt <= RECIPE_SESSION_TTL_MS) return session;
+    recipeSessions.delete(sessionId);
+    return null;
+  };
+
   await registerBotCommands(bot);
 
   bot.command('start', async (ctx) => {
@@ -333,9 +356,10 @@ export async function startTelegramBot(bot: Bot, handlers: TelegramBotHandlers):
   bot.command('recipes', async (ctx) => {
     const status = await ctx.reply('Loading recipes...');
     const recipes = await handlers.onListRecipes();
+    const sessionId = createRecipeSession(recipes);
     if (ctx.chatId == null) return;
     await ctx.api.editMessageText(ctx.chatId, status.message_id, formatRecipePage(recipes, 0), {
-      reply_markup: createRecipePageKeyboard(recipes, 0)
+      reply_markup: createRecipePageKeyboard(recipes, sessionId, 0)
     });
   });
 
@@ -450,13 +474,24 @@ export async function startTelegramBot(bot: Bot, handlers: TelegramBotHandlers):
     await ctx.editMessageText(msg);
   });
 
-  bot.callbackQuery(/^recipespage:(\d+)$/, async (ctx) => {
-    const offset = Number(ctx.match[1]);
+  bot.callbackQuery(/^recipespage:([^:]+):(\d+)$/, async (ctx) => {
+    const sessionId = String(ctx.match[1]);
+    const offset = Number(ctx.match[2]);
     await ctx.answerCallbackQuery();
     await ctx.editMessageText('Loading recipes...');
-    const recipes = await handlers.onListRecipes();
-    await ctx.editMessageText(formatRecipePage(recipes, offset), {
-      reply_markup: createRecipePageKeyboard(recipes, offset)
+    let session = getRecipeSession(sessionId);
+    let activeSessionId = sessionId;
+    if (!session) {
+      const recipes = await handlers.onListRecipes();
+      activeSessionId = createRecipeSession(recipes);
+      session = getRecipeSession(activeSessionId);
+    }
+    if (!session) {
+      await ctx.editMessageText('Unable to load recipes right now.');
+      return;
+    }
+    await ctx.editMessageText(formatRecipePage(session.recipes, offset), {
+      reply_markup: createRecipePageKeyboard(session.recipes, activeSessionId, offset)
     });
   });
 
