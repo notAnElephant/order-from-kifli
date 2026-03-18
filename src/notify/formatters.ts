@@ -4,6 +4,22 @@ function fmtMoney(value: number): string {
   return `${Math.round(value)} Ft`;
 }
 
+function collectPantryLines(proposal: ProposalRecord): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+
+  for (const scored of proposal.candidate.recipes) {
+    for (const ingredient of scored.recipe.pantryIngredients) {
+      const key = ingredient.normalizedName || ingredient.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(ingredient.originalLine.trim());
+    }
+  }
+
+  return lines;
+}
+
 export function formatProposalMessage(proposal: ProposalRecord): string {
   const candidate = proposal.candidate;
   const cart = candidate.cartProposal;
@@ -18,12 +34,14 @@ export function formatProposalMessage(proposal: ProposalRecord): string {
   const unmatchedLines = cart?.unmatchedIngredients ?? [];
   const substitutionLines = cart?.substitutions ?? [];
   const warningLines = cart?.grocerNotes ?? [];
+  const pantryLines = collectPantryLines(proposal);
 
   return [
     `🛒 Weekly Kifli proposal (${proposal.periodStart} → ${proposal.periodEnd})`,
     '',
     'Recipes:',
     recipeLines,
+    ...(pantryLines.length ? ['', '🏠 Make sure you have these at home:', ...pantryLines.map((w) => `- ${w}`)] : []),
     '',
     cart
       ? `Cart total: ${fmtMoney(cart.discountedTotal)} (savings ~${fmtMoney(cart.estimatedSavings)})`

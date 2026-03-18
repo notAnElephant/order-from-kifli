@@ -16,6 +16,7 @@ function scored(id: string, name: string, minutes: number, total: number, catego
         normalizedName,
         parseWarnings: []
       })),
+      pantryIngredients: [],
       rating: 4,
       totalMinutes: minutes,
       enabled: true,

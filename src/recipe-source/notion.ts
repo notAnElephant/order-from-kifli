@@ -1,6 +1,6 @@
 import { Client as NotionClient } from '@notionhq/client';
 import type { NotionFieldMap, Recipe, RecipeSource, StaticConfig } from '../types.js';
-import { parseIngredientText } from '../parsing/ingredient-parser.js';
+import { parseIngredientSections } from '../parsing/ingredient-parser.js';
 import { normalizeText, safeNumber } from '../utils/normalize.js';
 
 function propertyValueToText(prop: any): string {
@@ -159,14 +159,16 @@ export class NotionRecipeSource implements RecipeSource {
           ingredientsText = await this.extractIngredientsFromPageBody(row.id);
         }
         if (!ingredientsText) continue;
+        const parsedIngredients = parseIngredientSections(ingredientsText, {
+          synonyms: this.staticConfig.ingredientSynonyms
+        });
 
         const recipe: Recipe = {
           id: row.id,
           name,
           ingredientsText,
-          ingredients: parseIngredientText(ingredientsText, {
-            synonyms: this.staticConfig.ingredientSynonyms
-          }),
+          ingredients: parsedIngredients.buyIngredients,
+          pantryIngredients: parsedIngredients.pantryIngredients,
           rating: parseRatingValue(propertyValueToText(props[this.fields.rating])),
           totalMinutes: safeNumber(propertyValueToText(props[this.fields.total_minutes]), 0),
           enabled: propertyValueToBoolean(this.fields.enabled ? props[this.fields.enabled] : undefined, true),

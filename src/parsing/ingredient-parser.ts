@@ -86,6 +86,17 @@ export interface IngredientParserOptions {
   synonyms?: Record<string, string>;
 }
 
+export interface ParsedIngredientSections {
+  buyIngredients: ParsedIngredient[];
+  pantryIngredients: ParsedIngredient[];
+}
+
+function getSectionMarker(line: string): 'pantry' | null {
+  const normalized = normalizeText(line).replace(/:+$/, '');
+  if (normalized === 'kamra') return 'pantry';
+  return null;
+}
+
 export function parseIngredientLine(line: string, options: IngredientParserOptions = {}): ParsedIngredient {
   const { quantity, unit, name, warnings } = splitLine(line);
   const normalizedName = normalizeText(name || line);
@@ -100,10 +111,35 @@ export function parseIngredientLine(line: string, options: IngredientParserOptio
   };
 }
 
+export function parseIngredientSections(
+  text: string,
+  options: IngredientParserOptions = {}
+): ParsedIngredientSections {
+  const buyIngredients: ParsedIngredient[] = [];
+  const pantryIngredients: ParsedIngredient[] = [];
+  let section: 'buy' | 'pantry' = 'buy';
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const marker = getSectionMarker(line);
+    if (marker === 'pantry') {
+      section = 'pantry';
+      continue;
+    }
+
+    const parsed = parseIngredientLine(line, options);
+    if (section === 'pantry') {
+      pantryIngredients.push(parsed);
+    } else {
+      buyIngredients.push(parsed);
+    }
+  }
+
+  return { buyIngredients, pantryIngredients };
+}
+
 export function parseIngredientText(text: string, options: IngredientParserOptions = {}): ParsedIngredient[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => parseIngredientLine(line, options));
+  return parseIngredientSections(text, options).buyIngredients;
 }

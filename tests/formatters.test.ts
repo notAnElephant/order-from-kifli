@@ -20,6 +20,16 @@ describe('formatProposalMessage', () => {
               name: 'Paprikas Csirke',
               ingredientsText: '',
               ingredients: [],
+              pantryIngredients: [
+                {
+                  originalLine: 'só',
+                  quantity: null,
+                  unit: null,
+                  name: 'só',
+                  normalizedName: 'so',
+                  parseWarnings: []
+                }
+              ],
               rating: 5,
               totalMinutes: 45,
               enabled: true
@@ -42,6 +52,24 @@ describe('formatProposalMessage', () => {
               name: 'Tofus Teszta',
               ingredientsText: '',
               ingredients: [],
+              pantryIngredients: [
+                {
+                  originalLine: 'bors',
+                  quantity: null,
+                  unit: null,
+                  name: 'bors',
+                  normalizedName: 'bors',
+                  parseWarnings: []
+                },
+                {
+                  originalLine: 'só',
+                  quantity: null,
+                  unit: null,
+                  name: 'só',
+                  normalizedName: 'so',
+                  parseWarnings: []
+                }
+              ],
               rating: 4,
               totalMinutes: 25,
               enabled: true
@@ -82,6 +110,7 @@ describe('formatProposalMessage', () => {
 
     const message = formatProposalMessage(proposal);
 
+    expect(message).toContain('🏠 Make sure you have these at home:\n- só\n- bors');
     expect(message).toContain('⚠️ Unmatched ingredients:\n- 500g csirkemellfilé\n- nagy Mozzarella');
     expect(message).toContain('⚠️ Matching notes:\n- Low-confidence match for tejszín');
     expect(message).toContain('🔁 Suggested substitutions:\n- tofu -> Pappudia Tofu');

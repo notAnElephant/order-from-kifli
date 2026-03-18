@@ -14,6 +14,7 @@ export interface Recipe {
   name: string;
   ingredientsText: string;
   ingredients: ParsedIngredient[];
+  pantryIngredients: ParsedIngredient[];
   rating: number;
   totalMinutes: number;
   enabled: boolean;

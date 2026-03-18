@@ -24,6 +24,7 @@ const recipe: Recipe = {
       parseWarnings: []
     }
   ],
+  pantryIngredients: [],
   rating: 4.5,
   totalMinutes: 45,
   enabled: true,

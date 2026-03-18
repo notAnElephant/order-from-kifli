@@ -6,6 +6,7 @@ Local-first assistant that reads recipes from Notion, plans 2-3 weekly meals, bu
 
 1. Copy `.env.example` to `.env` and fill credentials.
 2. Update `config/notion-field-map.json` to match your `Receptek` database property names.
+   - Ingredients stay in the same multiline field; optional pantry staples go under a `Kamra:` line and are excluded from shopping.
 3. Install dependencies:
    - `pnpm install`
 4. Run diagnostics:
@@ -58,6 +59,34 @@ After cart evaluation, candidates are reranked again using:
 - a small total-price penalty
 
 ## Product Matching
+
+## Recipe Ingredient Format
+
+The ingredient field in Notion is still a single multiline text block.
+
+Use plain lines for items that should be added to the Kifli cart:
+
+```text
+500 g csirkemell
+2 db paprika
+1 csomag rizs
+```
+
+If a recipe also needs pantry staples that should not be bought, add them after a `Kamra:` marker:
+
+```text
+500 g csirkemell
+2 db paprika
+1 csomag rizs
+
+Kamra:
+só
+bors
+liszt
+olívaolaj
+```
+
+Everything before `Kamra:` is treated as a shopping ingredient. Everything after it is treated as a pantry ingredient and will only show up as a reminder in the bot message.
 
 Ingredient-to-product matching is deterministic and implemented in [src/grocer/product-matcher.ts](/Users/oraisz/code/order-from-kifli/src/grocer/product-matcher.ts).
 
