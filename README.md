@@ -109,3 +109,9 @@ This means items like `tej` should gradually converge toward products you alread
 ## Checkout
 
 This app does not place orders or select delivery slots. Approval in Telegram means the cart is prepared; final checkout is always manual in Kifli at `https://www.kifli.hu/rendeles/kosaram-tartalma`.
+
+## Future Improvements
+
+- Preserve Telegram forum topic and reply-thread context explicitly across proposal updates, rebuilds, approvals, and other follow-up actions.
+- Broaden Telegram context handling beyond the current single-chat flow before making the bot easily shareable with other users.
+- Add real per-chat settings instead of relying on a single default `TELEGRAM_CHAT_ID` and global app config.
